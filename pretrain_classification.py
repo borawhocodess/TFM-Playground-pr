@@ -13,7 +13,7 @@ from tfmplayground.train import train
 from tfmplayground.utils import get_default_device, set_randomness_seed
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--priordump", type=str, default="/50x3_3_100k_classification.h5", help="path to the prior dump")
+parser.add_argument("--priordump", type=str, default="50x3_3_100k_classification.h5", help="path to the prior dump")
 parser.add_argument("--heads", type=int, default=6, help="number of attention heads")
 parser.add_argument("--embeddingsize", type=int, default=192, help="the size of the embeddings used for the cells")
 parser.add_argument("--hiddensize", type=int, default=768, help="size of the hidden layer of the mlps")

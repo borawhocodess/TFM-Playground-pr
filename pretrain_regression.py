@@ -4,7 +4,7 @@ import torch
 from pfns.bar_distribution import FullSupportBarDistribution
 from sklearn.metrics import r2_score
 
-from tfmplayground.callbacks import ConsoleLoggerCallback
+from tfmplayground.training.callbacks import ConsoleLoggerCallback
 from tfmplayground.evaluation import get_openml_predictions, TOY_TASKS_REGRESSION
 from tfmplayground.interface import NanoTabPFNRegressor
 from tfmplayground.model import NanoTabPFNModel
@@ -14,7 +14,7 @@ from tfmplayground.utils import get_default_device, set_randomness_seed, make_gl
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("--priordump", type=str, default="50x3_1280k_regression.h5", help="path to the prior dump")
+parser.add_argument("--priordump", type=str, default="50x3_100k_regression.h5", help="path to the prior dump")
 parser.add_argument("--saveweights", type=str, default="nanotabpfn_weights.pth", help="path to save the trained model to")
 parser.add_argument("--savebuckets", type=str, default="nanotabpfn_buckets.pth", help="path to save the bucket edges to")
 parser.add_argument("--heads", type=int, default=6, help="number of attention heads")

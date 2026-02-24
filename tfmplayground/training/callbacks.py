@@ -1,49 +1,24 @@
-from abc import ABC, abstractmethod
-
-
-class Callback(ABC):
-    """ Abstract base class for callbacks."""
-
-    @abstractmethod
-    def on_epoch_end(self, epoch: int, epoch_time: float, loss: float, model, **kwargs):
-        """
-        Called at the end of each epoch.
-
-        Args:
-            epoch (int): The current epoch number.
-            epoch_time (float): Time of the epoch in seconds.
-            loss (float): Mean loss for the epoch.
-            model: The model being trained.
-            **kwargs: Additional arguments.
-        """
-        pass
-
-    @abstractmethod
-    def close(self):
-        """
-        Called to release any resources or perform cleanup.
-        """
-        pass
+from tfmplayground.training.base import Callback
 
 
 class BaseLoggerCallback(Callback):
-    """ Abstract base class for logger callbacks. """
+    """Abstract base class for logger callbacks."""
     pass
 
 
 class ConsoleLoggerCallback(BaseLoggerCallback):
-    """ Logger callback that prints epoch information to the console. """
+    """Logger callback that prints epoch information to the console."""
 
     def on_epoch_end(self, epoch: int, epoch_time: float, loss: float, model, **kwargs):
         print(f'Epoch {epoch:5d} | Time {epoch_time:5.2f}s | Mean Loss {loss:5.2f}', flush=True)
 
     def close(self):
-        """ Nothing to clean up for print logger. """
+        """Nothing to clean up for print logger."""
         pass
 
 
 class TensorboardLoggerCallback(BaseLoggerCallback):
-    """ Logger callback that logs epoch information to TensorBoard. """
+    """Logger callback that logs epoch information to TensorBoard."""
 
     def __init__(self, log_dir: str):
         from torch.utils.tensorboard import SummaryWriter
@@ -58,7 +33,7 @@ class TensorboardLoggerCallback(BaseLoggerCallback):
 
 
 class WandbLoggerCallback(BaseLoggerCallback):
-    """ Logger callback that logs epoch information to Weights & Biases. """
+    """Logger callback that logs epoch information to Weights & Biases."""
 
     def __init__(self, project: str, name: str = None, config: dict = None, log_dir: str = None):
         """
@@ -81,11 +56,11 @@ class WandbLoggerCallback(BaseLoggerCallback):
                 dir=log_dir,
                 resume="allow"
             )
-        except ImportError:
+        except ImportError as e:
             raise ImportError("wandb is not installed. Install it with: pip install wandb") from e
 
     def on_epoch_end(self, epoch: int, epoch_time: float, loss: float, model, **kwargs):
-        log_dict = {'epoch': epoch, 'loss': loss, ' epoch_time': epoch_time}
+        log_dict = {'epoch': epoch, 'loss': loss, 'epoch_time': epoch_time}
         self.wandb.log(log_dict)
 
     def close(self):

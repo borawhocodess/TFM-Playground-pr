@@ -70,7 +70,7 @@ def main(cfg: DictConfig):
         run_name=cfg.training.run_name,
         dataloader_num_workers=cfg.training.dataloader_num_workers,
     )
-    raw_model = trainer.train()
+    raw_model = trainer.train(resume_from_checkpoint=cfg.training.get("resume_from_checkpoint", False))
 
     # Save bucket edges and final model weights to run_dir
     torch.save(bucket_edges, f"{trainer.run_dir}/bucket_edges.pth")

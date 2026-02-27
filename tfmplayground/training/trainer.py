@@ -113,10 +113,15 @@ class BaseTrainer(Trainer):
         )
 
     def _load_checkpoint(self) -> Optional[Dict[str, Any]]:
+        """Load checkpoint from run_dir/latest_checkpoint.pth. Returns None if missing or invalid."""
         path = os.path.join(self.run_dir, "latest_checkpoint.pth")
         if not os.path.isfile(path):
             return None
-        return torch.load(path, map_location=self.device, weights_only=False)
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        if not isinstance(checkpoint, dict) or "epoch" not in checkpoint or "model" not in checkpoint:
+            log_on_main(logger, f"Checkpoint at {path} missing required keys; starting from epoch 1", logging.WARNING)
+            return None
+        return checkpoint
 
     def _setup_output_dir(self) -> None:
         if self.run_dir is None:
@@ -153,7 +158,13 @@ class BaseTrainer(Trainer):
             start_epoch = checkpoint["epoch"] + 1
 
         progress_bar = (
-            tqdm(range(self.epochs), desc="Training", leave=True)
+            tqdm(
+                range(self.epochs),
+                desc="Training",
+                leave=True,
+                initial=start_epoch - 1,
+                total=self.epochs,
+            )
             if self.master_process
             else range(self.epochs)
         )

@@ -27,3 +27,4 @@ training:
   epochs: 80
   run_name: nanotabpfn_regression
   n_buckets: 100
+  resume_from_checkpoint: false

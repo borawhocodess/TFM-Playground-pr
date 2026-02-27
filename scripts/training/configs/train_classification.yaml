@@ -26,3 +26,4 @@ training:
   lr: 1e-4
   epochs: 80
   run_name: nanotabpfn
+  resume_from_checkpoint: false

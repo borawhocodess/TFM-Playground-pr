@@ -58,7 +58,7 @@ def main(cfg: DictConfig):
         run_name=cfg.training.run_name,
         dataloader_num_workers=cfg.training.dataloader_num_workers,
     )
-    trainer.train()
+    trainer.train(resume_from_checkpoint=cfg.training.get("resume_from_checkpoint", False))
 
 
 if __name__ == "__main__":

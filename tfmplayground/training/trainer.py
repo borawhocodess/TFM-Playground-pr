@@ -63,6 +63,7 @@ class BaseTrainer(Trainer):
                 broadcast_buffers=False,
             )
             self.raw_model = self.model.module
+            # Batch size must be divisible by world size for DDP (no per-process batch split).
             if getattr(train_dataset, "batch_size", None) is not None:
                 if train_dataset.batch_size % self.ddp_world_size != 0:
                     raise ValueError(

@@ -1,4 +1,5 @@
 import argparse
+import logging
 
 import numpy as np
 import openml
@@ -9,6 +10,8 @@ from sklearn.metrics import balanced_accuracy_score, roc_auc_score, r2_score
 from sklearn.preprocessing import LabelEncoder
 
 from tfmplayground.interface import NanoTabPFNRegressor, NanoTabPFNClassifier
+
+openml.config.set_console_log_level(logging.WARNING)
 
 TOY_TASKS_REGRESSION = [
     362443, # diabetes

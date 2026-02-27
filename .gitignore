@@ -15,6 +15,10 @@ __pycache__/
 
 *.egg-info/
 
+multirun/
+.hydra/
+*.log
+
 *.zip
 
 .DS_Store

@@ -42,15 +42,19 @@ We will release multiple dumps of different scales soon. We also offer an interf
 ### Pretrain your own small nanoTabPFN
 First we download 100k pre-generated datasets with 50 datapoints, 3 features and up to 3 classes each from [here](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_3_100k_classification.h5).
 
-Then you can run:
+Then you can run (config in `scripts/training/configs/train_classification.yaml`):
 ```
-python pretrain_classification.py --epochs 80 --steps 25 --batchsize 50 --priordump 50x3_3_100k_classification.h5
+python scripts/training/train_classification.py training.epochs=80 training.steps=25
 ```
 This should take less than 5 min on a modern NVIDIA GPU (around 10 minutes on Macbook M4 Pro GPU and around 40 min on M4 Pro CPU).
 
 We also offer a pre-generated dataset containing 1.28M tables with 50 datapoints and 3 features each for regression [here](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_1280k_regression.h5).
 
-You can pretrain on it using `python pretrain_regressor.py`.
+You can pretrain on it using Hydra (config in `scripts/training/configs/train_regression.yaml`):
+```
+python scripts/training/train_regression.py training.epochs=80 training.steps=25
+```
+Or the argparse script: `python scripts/training/pretrain_regression.py`.
 
 #### Step by Step Explanation (Classifier)
 
@@ -61,7 +65,7 @@ from tfmplayground.priors import PriorDumpDataLoader
 from tfmplayground.train import train
 from tfmplayground.utils import get_default_device
 from tfmplayground.interface import NanoTabPFNClassifier
-from tfmplayground.callbacks import ConsoleLoggerCallback
+from tfmplayground.training.callbacks import ConsoleLoggerCallback
 
 from torch.nn import CrossEntropyLoss
 ```

@@ -40,21 +40,27 @@ print("Accuracy", accuracy_score(y_test, predictions))
 We will release multiple dumps of different scales soon. We also offer an interface where you can provide your own get\_batch function.
 
 ### Pretrain your own small nanoTabPFN
+Run all commands below from the **repository root**. Configs live in `scripts/training/configs/`.
+
 First we download 100k pre-generated datasets with 50 datapoints, 3 features and up to 3 classes each from [here](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_3_100k_classification.h5).
 
-Then you can run (config in `scripts/training/configs/train_classification.yaml`):
+**Classification** (`train_classification.yaml`):
 ```
 python scripts/training/train_classification.py training.epochs=80 training.steps=25
 ```
+Override any key, e.g. `training.epochs=1 training.steps=2 training.run_name=my_run`. Resume: `training.resume_from_checkpoint=true` with the same `training.run_name`.
+
 This should take less than 5 min on a modern NVIDIA GPU (around 10 minutes on Macbook M4 Pro GPU and around 40 min on M4 Pro CPU).
 
 We also offer a pre-generated dataset containing 1.28M tables with 50 datapoints and 3 features each for regression [here](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_1280k_regression.h5).
 
-You can pretrain on it using Hydra (config in `scripts/training/configs/train_regression.yaml`):
+**Regression** (`train_regression.yaml`):
 ```
 python scripts/training/train_regression.py training.epochs=80 training.steps=25
 ```
 Or the argparse script: `python scripts/training/pretrain_regression.py`.
+
+**Multi-GPU (DDP):** `torchrun --nproc_per_node=N scripts/training/train_classification.py ...` (batch size in config must be divisible by N). Use `CUDA_VISIBLE_DEVICES` to limit GPUs.
 
 #### Step by Step Explanation (Classifier)
 

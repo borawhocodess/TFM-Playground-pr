@@ -2,13 +2,14 @@
 
 from typing import Callable, Dict, Iterator, Union
 
-import h5py
 import torch
 from tabicl.prior.dataset import PriorDataset as TabICLPriorDataset
 from ticl.dataloader import PriorDataLoader as TICLPriorDataset
 # import here for future use & cleaner imports/it already handles type conversions
 from tabpfn_prior import TabPFNPriorDataLoader
 from torch.utils.data import DataLoader
+
+from .dataset import PriorDumpDataset
 
 
 class PriorDataLoader(DataLoader):
@@ -50,60 +51,29 @@ class PriorDataLoader(DataLoader):
 
 
 class PriorDumpDataLoader(DataLoader):
-    """DataLoader that loads synthetic prior data from an HDF5 dump.
+    """Thin wrapper around PriorDumpDataset for backward compatibility.
 
-    Args:
-        filename (str): Path to the HDF5 file.
-        num_steps (int): Number of batches per epoch.
-        batch_size (int): Batch size.
-        device (torch.device): Device to load tensors onto.
+    Same __init__ and batch API as before; iteration is delegated to PriorDumpDataset.
     """
+
     def __init__(self, filename, num_steps, batch_size, device, starting_index=0):
+        self._dataset = PriorDumpDataset(
+            filename=filename,
+            num_steps=num_steps,
+            batch_size=batch_size,
+            device=device,
+            starting_index=starting_index,
+        )
         self.filename = filename
         self.num_steps = num_steps
         self.batch_size = batch_size
-        with h5py.File(self.filename, "r") as f:
-            self.num_datapoints_max = f['X'].shape[0]
-            if "max_num_classes" in f:
-                self.max_num_classes = f["max_num_classes"][0]
-            else:
-                self.max_num_classes = None
-            self.problem_type = f["problem_type"][()].decode("utf-8")
-            self.has_num_datapoints = "num_datapoints" in f
-            self.stored_max_seq_len = f["X"].shape[1]
         self.device = device
-        self.pointer = starting_index
+        self.num_datapoints_max = self._dataset.num_datapoints_max
+        self.max_num_classes = self._dataset.max_num_classes
+        self.problem_type = self._dataset.problem_type
 
     def __iter__(self):
-        with h5py.File(self.filename, "r") as f:
-            for _ in range(self.num_steps):
-                end = self.pointer + self.batch_size
-
-                num_features = f["num_features"][self.pointer : end].max()
-                if self.has_num_datapoints:
-                    num_datapoints_batch = f["num_datapoints"][self.pointer:end]
-                    max_seq_in_batch = int(num_datapoints_batch.max())
-                else:
-                    max_seq_in_batch = int(self.stored_max_seq_len)
-
-                x = torch.from_numpy(f["X"][self.pointer:end, :max_seq_in_batch, :num_features])
-                y = torch.from_numpy(f["y"][self.pointer:end, :max_seq_in_batch])
-                single_eval_pos = f["single_eval_pos"][self.pointer : end]
-
-                self.pointer += self.batch_size
-                if self.pointer >= f["X"].shape[0]:
-                    print(
-                        """Finished iteration over all stored datasets! """
-                        """Will start reusing the same data with different splits now."""
-                    )
-                    self.pointer = 0
-
-                yield dict(
-                    x=x.to(self.device),
-                    y=y.to(self.device),
-                    target_y=y.to(self.device),  # target_y is identical to y (for downstream compatibility)
-                    single_eval_pos=single_eval_pos[0].item(),
-                )
+        return iter(self._dataset)
 
     def __len__(self):
         return self.num_steps

@@ -14,7 +14,7 @@ from torch import nn
 from sklearn.metrics import accuracy_score
 from tfmplayground.training.callbacks import ConsoleLoggerCallback
 from tfmplayground.training.trainer import BaseTrainer
-from tfmplayground.training.util import tqdm_on_main
+from tfmplayground.training.util import tqdm_on_main, find_latest_run_dir
 from tfmplayground.evaluation import get_openml_predictions, TOY_TASKS_CLASSIFICATION
 from tfmplayground.interface import NanoTabPFNClassifier
 from tfmplayground.model import NanoTabPFNModel
@@ -35,6 +35,7 @@ def _argparse_to_hydra_argv(argv: list[str]) -> list[str]:
     parser.add_argument("--priordump", "--dataset", type=str, default=None, dest="priordump")
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--resume_dir", type=str, default=None, help="explicit run dir to resume from (else latest by mtime)")
     args, remaining = parser.parse_known_args(argv[1:])
 
     overrides = []
@@ -54,6 +55,8 @@ def _argparse_to_hydra_argv(argv: list[str]) -> list[str]:
         overrides.append(f"dataset.batch_size={args.batch_size}")
     if args.lr is not None:
         overrides.append(f"training.lr={args.lr}")
+    if args.resume_dir is not None:
+        overrides.append(f"training.resume_dir={args.resume_dir}")
 
     return [argv[0]] + overrides + remaining
 
@@ -87,6 +90,15 @@ def main(cfg: DictConfig):
     )
     device = str(cfg.dataset.device)
     callbacks = [ToyEvaluationLoggerCallback(TOY_TASKS_CLASSIFICATION, device)]
+    base_run_dir = "workdir/experiments/classification"
+    run_name = cfg.training.run_name
+    resume = cfg.training.get("resume_from_checkpoint", False)
+    # When resuming: explicit training.resume_dir wins; else for named runs use latest by mtime
+    resume_dir = None
+    if resume:
+        resume_dir = cfg.training.get("resume_dir") or (
+            find_latest_run_dir(base_run_dir, run_name) if run_name else None
+        )
     trainer = BaseTrainer(
         model=model,
         train_dataset=dataset,
@@ -96,12 +108,13 @@ def main(cfg: DictConfig):
         accumulate_gradients=cfg.training.accumulate_gradients,
         epochs=cfg.training.epochs,
         steps=cfg.training.steps,
-        run_dir="workdir/experiments/classification",
-        run_name=cfg.training.run_name,
+        run_dir=base_run_dir,
+        run_name=run_name,
         task="classification",
+        resume_dir=resume_dir,
         dataloader_num_workers=cfg.training.dataloader_num_workers,
     )
-    trainer.train(resume_from_checkpoint=cfg.training.get("resume_from_checkpoint", False))
+    trainer.train(resume_from_checkpoint=resume)
     print(f"Done, saved to: {trainer.run_dir}", flush=True)
 
 

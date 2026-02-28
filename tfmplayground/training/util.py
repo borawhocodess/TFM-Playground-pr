@@ -12,6 +12,28 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 
+def find_latest_run_dir(base_dir: str, run_name: str) -> str | None:
+    """Return the path to the latest run under base_dir/run_name/ that has latest_checkpoint.pth, or None.
+    When no explicit resume path is given, callers use this to choose the most recent run (by mtime).
+    """
+    parent = os.path.join(base_dir, run_name)
+    if not os.path.isdir(parent):
+        return None
+    best_path: str | None = None
+    best_mtime: float = 0
+    for name in os.listdir(parent):
+        path = os.path.join(parent, name)
+        if not os.path.isdir(path):
+            continue
+        if not os.path.isfile(os.path.join(path, "latest_checkpoint.pth")):
+            continue
+        mtime = os.path.getmtime(path)
+        if mtime >= best_mtime:
+            best_mtime = mtime
+            best_path = path
+    return best_path
+
+
 def generate_run_id(run_name: str | None = None, task: str | None = None) -> str:
     ts = datetime.now().strftime("%y%m%d-%H%M%S")
     uid = uuid.uuid4().hex[:8]

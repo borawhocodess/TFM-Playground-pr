@@ -41,6 +41,7 @@ class BaseTrainer(Trainer):
         run_dir: Optional[str] = None,
         run_name: Optional[str] = None,
         task: Optional[str] = None,
+        resume_dir: Optional[str] = None,
         use_cpu: bool = False,
         dataloader_num_workers: int = 0,
         **kwargs,
@@ -52,7 +53,10 @@ class BaseTrainer(Trainer):
         self.run_dir = run_dir
         self.run_name = run_name
         self.task = task
-        self._setup_output_dir()
+        if resume_dir is not None:
+            self.run_dir = resume_dir
+        else:
+            self._setup_output_dir()
 
         self.device, self.ddp = infer_device(use_cpu)
 

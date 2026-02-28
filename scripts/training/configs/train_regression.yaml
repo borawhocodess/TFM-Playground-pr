@@ -16,15 +16,15 @@ model:
 dataset:
   filename: ./50x3_100k_regression.h5
   device: cuda
-  batch_size: 50
+  batch_size: 1  # match old pretrain_regression.py default
   starting_index: 0
 
 training:
-  steps: 25
+  steps: 100  # match old pretrain_regression.py default
   accumulate_gradients: 1
   dataloader_num_workers: 0
   lr: 1e-4
-  epochs: 80
+  epochs: 10000  # match old pretrain_regression.py default
   run_name: nanotabpfn_regression
   n_buckets: 100
   resume_from_checkpoint: false

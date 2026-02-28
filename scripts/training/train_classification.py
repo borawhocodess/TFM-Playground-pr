@@ -1,4 +1,11 @@
-"""Hydra-based classification training entrypoint using BaseTrainer and PriorDumpDataset."""
+"""Hydra-based classification training entrypoint using BaseTrainer and PriorDumpDataset.
+
+Accepts both Hydra overrides (e.g. training.epochs=1) and argparse-style flags
+(e.g. --epochs 1 --steps 2). Flags are converted to Hydra overrides before Hydra runs.
+"""
+
+import argparse
+import sys
 
 import hydra
 from omegaconf import DictConfig
@@ -15,6 +22,40 @@ from tfmplayground.priors.dataset import PriorDumpDataset
 from tfmplayground.utils import set_randomness_seed
 
 set_randomness_seed(2402)
+
+
+def _argparse_to_hydra_argv(argv: list[str]) -> list[str]:
+    """Convert argparse-style flags to Hydra overrides; return new argv for Hydra."""
+    parser = argparse.ArgumentParser(description="Train classification (argparse flags → Hydra)")
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--steps", type=int, default=None)
+    parser.add_argument("--run_name", type=str, default=None)
+    parser.add_argument("--resume", action="store_true", default=None)
+    parser.add_argument("--no-resume", action="store_false", dest="resume", default=None)
+    parser.add_argument("--priordump", "--dataset", type=str, default=None, dest="priordump")
+    parser.add_argument("--batch_size", type=int, default=None)
+    parser.add_argument("--lr", type=float, default=None)
+    args, remaining = parser.parse_known_args(argv[1:])
+
+    overrides = []
+    if args.epochs is not None:
+        overrides.append(f"training.epochs={args.epochs}")
+    if args.steps is not None:
+        overrides.append(f"training.steps={args.steps}")
+    if args.run_name is not None:
+        overrides.append(f"training.run_name={args.run_name}")
+    if args.resume is True:
+        overrides.append("training.resume_from_checkpoint=true")
+    if args.resume is False:
+        overrides.append("training.resume_from_checkpoint=false")
+    if args.priordump is not None:
+        overrides.append(f"dataset.filename={args.priordump}")
+    if args.batch_size is not None:
+        overrides.append(f"dataset.batch_size={args.batch_size}")
+    if args.lr is not None:
+        overrides.append(f"training.lr={args.lr}")
+
+    return [argv[0]] + overrides + remaining
 
 
 class ToyEvaluationLoggerCallback(ConsoleLoggerCallback):
@@ -62,4 +103,5 @@ def main(cfg: DictConfig):
 
 
 if __name__ == "__main__":
+    sys.argv = _argparse_to_hydra_argv(sys.argv)
     main()

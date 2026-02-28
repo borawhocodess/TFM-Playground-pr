@@ -58,7 +58,7 @@ We also offer a pre-generated dataset containing 1.28M tables with 50 datapoints
 ```
 python scripts/training/train_regression.py training.epochs=80 training.steps=25
 ```
-Or the argparse script: `python scripts/training/pretrain_regression.py`.
+Override with Hydra (e.g. `training.epochs=1`) or argparse-style flags (e.g. `--epochs 1 --steps 100`).
 
 **Multi-GPU (DDP):** `torchrun --nproc_per_node=N scripts/training/train_classification.py ...` (batch size in config must be divisible by N). Use `CUDA_VISIBLE_DEVICES` to limit GPUs.
 

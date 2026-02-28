@@ -96,10 +96,13 @@ def main(cfg: DictConfig):
         accumulate_gradients=cfg.training.accumulate_gradients,
         epochs=cfg.training.epochs,
         steps=cfg.training.steps,
+        run_dir="workdir/experiments/classification",
         run_name=cfg.training.run_name,
+        task="classification",
         dataloader_num_workers=cfg.training.dataloader_num_workers,
     )
     trainer.train(resume_from_checkpoint=cfg.training.get("resume_from_checkpoint", False))
+    print(f"Done, saved to: {trainer.run_dir}", flush=True)
 
 
 if __name__ == "__main__":

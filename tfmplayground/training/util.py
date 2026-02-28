@@ -12,11 +12,14 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 
-def generate_run_id(run_name: str | None = None) -> str:
+def generate_run_id(run_name: str | None = None, task: str | None = None) -> str:
     ts = datetime.now().strftime("%y%m%d-%H%M%S")
     uid = uuid.uuid4().hex[:8]
-    run_id = f"{ts}-{uid}-{run_name.strip()}" if run_name else f"{ts}-{uid}"
-    return run_id
+    if task:
+        mid = f"{ts}-{task}-{uid}"
+    else:
+        mid = f"{ts}-{uid}"
+    return f"{mid}-{run_name.strip()}" if run_name else mid
 
 
 def check_ddp_availability() -> bool:

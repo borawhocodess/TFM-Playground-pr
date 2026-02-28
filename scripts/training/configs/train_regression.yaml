@@ -20,11 +20,11 @@ dataset:
   starting_index: 0
 
 training:
+  run_name: null  # null = auto-generated run id
   steps: 100  # match old pretrain_regression.py default
   accumulate_gradients: 1
   dataloader_num_workers: 0
   lr: 1e-4
   epochs: 10000  # match old pretrain_regression.py default
-  run_name: nanotabpfn_regression
   n_buckets: 100
   resume_from_checkpoint: false

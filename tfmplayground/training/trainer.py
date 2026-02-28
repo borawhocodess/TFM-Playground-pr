@@ -40,6 +40,7 @@ class BaseTrainer(Trainer):
         callbacks: list[Callback] | None = None,
         run_dir: Optional[str] = None,
         run_name: Optional[str] = None,
+        task: Optional[str] = None,
         use_cpu: bool = False,
         dataloader_num_workers: int = 0,
         **kwargs,
@@ -50,6 +51,7 @@ class BaseTrainer(Trainer):
 
         self.run_dir = run_dir
         self.run_name = run_name
+        self.task = task
         self._setup_output_dir()
 
         self.device, self.ddp = infer_device(use_cpu)
@@ -126,10 +128,14 @@ class BaseTrainer(Trainer):
 
     def _setup_output_dir(self) -> None:
         if self.run_dir is None:
-            self.run_dir = "training_outputs"
+            self.run_dir = "workdir/experiments"
+        run_id = generate_run_id(run_name=self.run_name, task=self.task)
         if self.run_name is None:
-            self.run_name = generate_run_id()
-        self.run_dir = os.path.join(self.run_dir, self.run_name)
+            self.run_name = run_id
+            self.run_dir = os.path.join(self.run_dir, self.run_name)
+        else:
+            # Named run: .../regression/<run_name>/<timestamp>-<task>-<uuid>-<run_name>/
+            self.run_dir = os.path.join(self.run_dir, self.run_name, run_id)
         os.makedirs(self.run_dir, exist_ok=True)
 
     def _loss(self, output: torch.Tensor, targets: torch.Tensor) -> float:

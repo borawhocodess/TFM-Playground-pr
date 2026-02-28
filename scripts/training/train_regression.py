@@ -111,7 +111,9 @@ def main(cfg: DictConfig):
         accumulate_gradients=cfg.training.accumulate_gradients,
         epochs=cfg.training.epochs,
         steps=cfg.training.steps,
+        run_dir="workdir/experiments/regression",
         run_name=cfg.training.run_name,
+        task="regression",
         dataloader_num_workers=cfg.training.dataloader_num_workers,
     )
     raw_model = trainer.train(resume_from_checkpoint=cfg.training.get("resume_from_checkpoint", False))
@@ -119,6 +121,7 @@ def main(cfg: DictConfig):
     # Save bucket edges and final model weights to run_dir
     torch.save(bucket_edges, f"{trainer.run_dir}/bucket_edges.pth")
     torch.save(raw_model.to("cpu").state_dict(), f"{trainer.run_dir}/final_model.pth")
+    print(f"Done, saved to: {trainer.run_dir}", flush=True)
 
 
 if __name__ == "__main__":

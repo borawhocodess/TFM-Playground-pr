@@ -5,6 +5,7 @@ from typing import Union
 import h5py
 import numpy as np
 import torch
+from pfns.bar_distribution import get_bucket_limits
 from ticl.priors import GPPrior, MLPPrior, ClassificationAdapterPrior, BooleanConjunctionPrior, StepFunctionPrior
 from tqdm import tqdm
 
@@ -68,6 +69,35 @@ def build_tabpfn_prior(prior_type: str, max_classes: int) -> dict:
             **get_tabpfn_prior_config(prior_type),
         },
     }
+
+
+def make_bucket_edges_from_live_prior(prior, n_buckets: int, batch_size: int,
+                                      num_features: int, num_rows: int,
+                                      device, n_batches: int = 50):
+    """
+    Compute quantile-based bucket edges by sampling n_batches from a live TICL prior.
+    Targets are z-scored per dataset before pooling, matching what train.py does.
+    """
+    from ticl.dataloader import PriorDataLoader as TICLPriorDataset
+    all_y = []
+    loader = TICLPriorDataset(
+        prior=prior,
+        num_steps=n_batches,
+        batch_size=batch_size,
+        min_eval_pos=num_rows // 2,
+        n_samples=num_rows,
+        device='cpu',
+        num_features=num_features,
+    )
+    for (info, x, y), target_y, single_eval_pos in loader:
+        y_np = y.numpy()  # (num_rows, batch_size)
+        y_means = y_np.mean(axis=0, keepdims=True)
+        y_stds = y_np.std(axis=0, ddof=1, keepdims=True) + 1e-8
+        all_y.append(((y_np - y_means) / y_stds).ravel())
+
+    ys = torch.tensor(np.concatenate(all_y), dtype=torch.float32, device=device)
+    print(f"Using {ys.numel()} y evals to estimate {n_buckets} buckets.")
+    return get_bucket_limits(n_buckets, ys=ys).to(device)
 
 
 def dump_prior_to_h5(

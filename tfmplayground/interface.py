@@ -11,36 +11,92 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OrdinalEncoder, FunctionTransformer
 
-from tfmplayground.model import NanoTabPFNModel
+from tfmplayground.model import NanoTabPFNModel, NanoTabPFNModelV1
 from tfmplayground.utils import get_default_device
 
+
+def _convert_inproj_to_separate(sd: dict) -> dict:
+    """
+    Convert nn.MultiheadAttention in_proj_weight/bias (3e×e) to separate
+    q_proj / k_proj / v_proj so the state dict loads into NanoTabPFNModelV1.
+    """
+    new_sd = {}
+    for k, v in sd.items():
+        converted = False
+        for attn in ("self_attention_between_features", "self_attention_between_datapoints"):
+            if k.endswith(f".{attn}.in_proj_weight"):
+                prefix = k[:-len(f".{attn}.in_proj_weight")]
+                e = v.shape[0] // 3
+                new_sd[f"{prefix}.{attn}.q_proj.weight"] = v[:e].clone()
+                new_sd[f"{prefix}.{attn}.k_proj.weight"] = v[e:2*e].clone()
+                new_sd[f"{prefix}.{attn}.v_proj.weight"] = v[2*e:].clone()
+                converted = True
+                break
+            if k.endswith(f".{attn}.in_proj_bias"):
+                prefix = k[:-len(f".{attn}.in_proj_bias")]
+                e = v.shape[0] // 3
+                new_sd[f"{prefix}.{attn}.q_proj.bias"] = v[:e].clone()
+                new_sd[f"{prefix}.{attn}.k_proj.bias"] = v[e:2*e].clone()
+                new_sd[f"{prefix}.{attn}.v_proj.bias"] = v[2*e:].clone()
+                converted = True
+                break
+        if not converted:
+            new_sd[k] = v
+    return new_sd
+
+
 def init_model_from_state_dict_file(file_path):
-    """
-    reads model architecture from state dict, instantiates the architecture and loads the weights
-    """
-    state_dict = torch.load(file_path, map_location=torch.device('cpu'))
-    model = NanoTabPFNModel(
-        num_attention_heads=state_dict['architecture']['num_attention_heads'],
-        embedding_size=state_dict['architecture']['embedding_size'],
-        mlp_hidden_size=state_dict['architecture']['mlp_hidden_size'],
-        num_layers=state_dict['architecture']['num_layers'],
-        num_outputs=state_dict['architecture']['num_outputs'],
+    ckpt = torch.load(file_path, map_location=torch.device('cpu'), weights_only=False)
+    arch = ckpt['architecture']
+    model_sd = ckpt['model']
+
+    # None buffers are excluded from PyTorch state_dict — extract borders separately
+    borders = model_sd.pop('borders', None)
+
+    is_legacy = any(
+        'self_attention_between_features' in k or 'self_attention_between_datapoints' in k
+        for k in model_sd
     )
-    model.load_state_dict(state_dict['model'])
+
+    if is_legacy:
+        # official checkpoints use nn.MultiheadAttention in_proj_weight; split into q/k/v
+        if any('in_proj_weight' in k for k in model_sd):
+            model_sd = _convert_inproj_to_separate(model_sd)
+        model = NanoTabPFNModelV1(**arch)
+    else:
+        model = NanoTabPFNModel(
+            num_attention_heads=arch['num_attention_heads'],
+            embedding_size=arch['embedding_size'],
+            mlp_hidden_size=arch['mlp_hidden_size'],
+            num_layers=arch['num_layers'],
+            num_outputs=arch['num_outputs'],
+            residual_decay=arch.get('residual_decay', 1.0),
+            num_thinking_rows=arch.get('num_thinking_rows', 0),
+        )
+
+    model.load_state_dict(model_sd, strict=True)
+
+    # fall back to sibling *-buckets.pth if borders not baked into checkpoint
+    if borders is None:
+        buckets_path = file_path.replace('-checkpoint.pth', '-buckets.pth')
+        if os.path.isfile(buckets_path):
+            borders = torch.load(buckets_path, map_location='cpu', weights_only=False)
+
+    if borders is not None:
+        model.borders = borders
+
     return model
 
-# doing these as lambdas would cause NanoTabPFNClassifier to not be pickle-able,
-# which would cause issues if we want to run it inside the tabarena codebase
+
 def to_pandas(x):
     return pd.DataFrame(x) if not isinstance(x, pd.DataFrame) else x
+
 
 def to_numeric(x):
     return x.apply(pd.to_numeric, errors='coerce').to_numpy()
 
+
 def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> ColumnTransformer:
-    """
-    fits a preprocessor that imputes NaNs, encodes categorical features and removes constant features
-    """
     X = pd.DataFrame(X)
     num_mask = []
     cat_mask = []
@@ -51,18 +107,17 @@ def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> ColumnTransformer:
             cat_mask.append(False)
             continue
         non_nan_entries = X[col].notna().sum()
-        numeric_entries = pd.to_numeric(X[col], errors='coerce').notna().sum() # in case numeric columns are stored as strings
+        numeric_entries = pd.to_numeric(X[col], errors='coerce').notna().sum()
         num_mask.append(non_nan_entries == numeric_entries)
         cat_mask.append(non_nan_entries != numeric_entries)
-        # num_mask.append(is_numeric_dtype(X[col]))  # Assumes pandas dtype is correct
 
     num_mask = np.array(num_mask)
     cat_mask = np.array(cat_mask)
 
     num_transformer = Pipeline([
-        ("to_pandas", FunctionTransformer(to_pandas)), # to apply pd.to_numeric of pandas
-        ("to_numeric", FunctionTransformer(to_numeric)), # in case numeric columns are stored as strings
-        ('imputer', SimpleImputer(strategy='mean', add_indicator=True)) # median might be better because of outliers
+        ("to_pandas", FunctionTransformer(to_pandas)),
+        ("to_numeric", FunctionTransformer(to_numeric)),
+        ('imputer', SimpleImputer(strategy='mean', add_indicator=True))
     ])
     cat_transformer = Pipeline([
         ('encoder', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=np.nan)),
@@ -80,7 +135,7 @@ def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> ColumnTransformer:
 
 class NanoTabPFNClassifier():
     """ scikit-learn like interface """
-    def __init__(self, model: NanoTabPFNModel|str|None = None, device: None|str|torch.device = None, num_mem_chunks: int = 8):
+    def __init__(self, model: NanoTabPFNModel | str | None = None, device: None | str | torch.device = None, num_mem_chunks: int = 8):
         if device is None:
             device = get_default_device()
         if model is None:
@@ -98,38 +153,33 @@ class NanoTabPFNClassifier():
         self.num_mem_chunks = num_mem_chunks
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
-        """ stores X_train and y_train for later use, also computes the highest class number occuring in num_classes """
         self.feature_preprocessor = get_feature_preprocessor(X_train)
         self.X_train = self.feature_preprocessor.fit_transform(X_train)
         self.y_train = y_train
-        self.num_classes = max(set(y_train))+1
+        self.num_classes = max(set(y_train)) + 1
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
-        """ calls predit_proba and picks the class with the highest probability for each datapoint """
         predicted_probabilities = self.predict_proba(X_test)
         return predicted_probabilities.argmax(axis=1)
 
     def predict_proba(self, X_test: np.ndarray) -> np.ndarray:
-        """
-        creates (x,y), runs it through our PyTorch Model, cuts off the classes that didn't appear in the training data
-        and applies softmax to get the probabilities
-        """
         x = np.concatenate((self.X_train, self.feature_preprocessor.transform(X_test)))
         y = self.y_train
-        with torch.no_grad():
-            x = torch.from_numpy(x).unsqueeze(0).to(torch.float).to(self.device)  # introduce batch size 1
+        device_type = torch.device(self.device).type if isinstance(self.device, str) else self.device.type
+        with torch.no_grad(), torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16):
+            x = torch.from_numpy(x).unsqueeze(0).to(torch.float).to(self.device)
             y = torch.from_numpy(y).unsqueeze(0).to(torch.float).to(self.device)
-            out = self.model((x, y), single_eval_pos=len(self.X_train), num_mem_chunks=self.num_mem_chunks).squeeze(0)  # remove batch size 1
-            # our pretrained classifier supports up to num_outputs classes, if the dataset has less we cut off the rest
+            out = self.model((x, y), single_eval_pos=len(self.X_train), num_mem_chunks=self.num_mem_chunks).squeeze(0)
             out = out[:, :self.num_classes]
-            # apply softmax to get a probability distribution
             probabilities = F.softmax(out, dim=1)
-            return probabilities.to('cpu').numpy()
+            return probabilities.to('cpu').float().numpy()
 
 
 class NanoTabPFNRegressor():
     """ scikit-learn like interface """
-    def __init__(self, model: NanoTabPFNModel|str|None = None, dist: FullSupportBarDistribution|str|None = None, device: str|torch.device|None = None, num_mem_chunks: int = 8):
+    def __init__(self, model: NanoTabPFNModel | str | None = None,
+                 dist: FullSupportBarDistribution | str | None = None,
+                 device: str | torch.device | None = None, num_mem_chunks: int = 8):
         if device is None:
             device = get_default_device()
         if model is None:
@@ -153,39 +203,34 @@ class NanoTabPFNRegressor():
             bucket_edges = torch.load(dist, map_location=device)
             dist = FullSupportBarDistribution(bucket_edges).float()
 
+        # derive dist from model's baked-in borders if not provided explicitly
+        if dist is None:
+            if model.borders is not None:
+                dist = FullSupportBarDistribution(model.borders.float())
+            else:
+                raise ValueError("No dist provided and model has no borders buffer. Pass dist explicitly.")
+
         self.model = model.to(device)
         self.device = device
         self.dist = dist
         self.num_mem_chunks = num_mem_chunks
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
-        """
-        Stores X_train and y_train for later use.
-        Computes target normalization.
-        """
         self.feature_preprocessor = get_feature_preprocessor(X_train)
         self.X_train = self.feature_preprocessor.fit_transform(X_train)
         self.y_train = y_train
-
         self.y_train_mean = np.mean(self.y_train)
         self.y_train_std = np.std(self.y_train, ddof=1) + 1e-8
         self.y_train_n = (self.y_train - self.y_train_mean) / self.y_train_std
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
-        """
-        Performs in-context learning using X_train and y_train.
-        Predicts the means of the output distributions for X_test.
-        Renormalizes the predictions back to the original target scale.
-        """
         X = np.concatenate((self.X_train, self.feature_preprocessor.transform(X_test)))
         y = self.y_train_n
-
-        with torch.no_grad():
+        device_type = torch.device(self.device).type if isinstance(self.device, str) else self.device.type
+        with torch.no_grad(), torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16):
             X_tensor = torch.tensor(X, dtype=torch.float32, device=self.device).unsqueeze(0)
             y_tensor = torch.tensor(y, dtype=torch.float32, device=self.device).unsqueeze(0)
-
             logits = self.model((X_tensor, y_tensor), single_eval_pos=len(self.X_train), num_mem_chunks=self.num_mem_chunks).squeeze(0)
-            preds_n = self.dist.mean(logits)
+            preds_n = self.dist.mean(logits.float())
             preds = preds_n * self.y_train_std + self.y_train_mean
-
-        return preds.cpu().numpy()
+        return preds.cpu().float().numpy()

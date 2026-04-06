@@ -9,16 +9,42 @@ import os
 
 from tfmplayground.callbacks import Callback
 from tfmplayground.model import NanoTabPFNModel
+from tfmplayground.muon import SingleDeviceMuonWithAuxAdam
 from tfmplayground.utils import get_default_device
+
+torch.set_float32_matmul_precision('high')
+
+
+def _build_muon_optimizer(model: NanoTabPFNModel, lr: float, muon_lr: float):
+    """
+    Split parameters into two groups:
+    - Muon:  2-D weight matrices inside the transformer (hidden layers only)
+    - AdamW: everything else — encoders, decoder, biases, norms
+    """
+    raw = model.module if isinstance(model, nn.DataParallel) else model
+    transformer_param_ids = {id(p) for p in raw.transformer_encoder.parameters()}
+
+    muon_params, adam_params = [], []
+    for p in model.parameters():
+        if id(p) in transformer_param_ids and p.ndim == 2:
+            muon_params.append(p)
+        else:
+            adam_params.append(p)
+
+    param_groups = [
+        dict(params=muon_params, lr=muon_lr, momentum=0.95, weight_decay=0.0, use_muon=True),
+        dict(params=adam_params, lr=lr, betas=(0.9, 0.95), eps=1e-8, weight_decay=0.1, use_muon=False),
+    ]
+    return SingleDeviceMuonWithAuxAdam(param_groups)
 
 
 def train(
-    model: NanoTabPFNModel, 
-    prior: DataLoader, 
+    model: NanoTabPFNModel,
+    prior: DataLoader,
     criterion: nn.CrossEntropyLoss | FullSupportBarDistribution,
     epochs: int,
     accumulate_gradients: int = 1,
-    lr: float = 1e-4,
+    lr: float = 1e-3,
     device: torch.device = None,
     callbacks: list[Callback] = None,
     ckpt: Dict[str, torch.Tensor] = None,
@@ -26,25 +52,11 @@ def train(
     run_name: str = 'nanoTFM',
     experiment_id: str = None,
     experiment_dir: str = None,
+    mixed_precision: bool = True,
+    warmup_steps: int = 1000,
+    optimizer_type: str = 'schedulefree',
+    muon_lr: float = 0.02,
 ):
-    """
-    Trains our model on the given prior using the given criterion.
-
-    Args:
-        model: (NanoTabPFNModel) our PyTorch model
-        prior: (DataLoader) torch-compatible dataloader
-        criterion: (nn.CrossEntropyLoss | FullSupportBarDistribution) our loss criterion
-        epochs: (int) the number of epochs we train for, the number of steps that constitute an epoch are decided by the prior
-        accumulate_gradients: (int) the number of gradients to accumulate before updating the weights
-        device: (torch.device) the device we are using
-        callbacks: A list of callback instances to execute at the end of each epoch. These can be used for
-            logging, validation, or other custom actions.
-        ckpt (Dict[str, torch.Tensor], optional): A checkpoint dictionary containing the model and optimizer states,
-            as well as the last completed epoch. If provided, training resumes from this checkpoint.
-
-    Returns:
-        (torch.Tensor) a tensor of shape (num_rows, batch_size, num_features, embedding_size)
-    """
     if multi_gpu:
         model = nn.DataParallel(model)
     if callbacks is None:
@@ -52,25 +64,45 @@ def train(
     if not device:
         device = get_default_device()
     model.to(device)
-    optimizer = schedulefree.AdamWScheduleFree(model.parameters(), lr=lr, weight_decay=0.0)
+
+    if optimizer_type == 'muon':
+        optimizer = _build_muon_optimizer(model, lr=lr, muon_lr=muon_lr)
+    else:
+        optimizer = schedulefree.AdamWScheduleFree(model.parameters(), lr=lr, weight_decay=0.1, warmup_steps=warmup_steps)
     if ckpt:
         optimizer.load_state_dict(ckpt['optimizer'])
+
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
 
+    device = torch.device(device) if isinstance(device, str) else device
+    use_amp = mixed_precision and device.type == 'cuda'
+    autocast_ctx = torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16) if use_amp else torch.amp.autocast(device_type='cpu', enabled=False)
+    # bfloat16 has the same exponent range as float32 — no GradScaler needed
+
     assert prior.num_steps % accumulate_gradients == 0, 'num_steps must be divisible by accumulate_gradients'
+
+    init_param_norm = sum(p.data.norm().item() ** 2 for p in model.parameters()) ** 0.5
 
     try:
         for epoch in range(ckpt['epoch'] + 1 if ckpt else 1, epochs + 1):
+            curriculum_str = ""
+            if hasattr(prior, 'on_epoch_start'):
+                prior.on_epoch_start(epoch, epochs)
+                curriculum_str = f" | curriculum f={prior.cur_features} r={prior.cur_rows}"
             epoch_start_time = time.time()
-            model.train()  # Turn on the train mode
-            optimizer.train()
+            model.train()
+            if hasattr(optimizer, 'train'):
+                optimizer.train()
             total_loss = 0.
+            total_grad_norm = 0.
+            skipped_steps = 0
+            n_optimizer_steps = 0
             for i, full_data in enumerate(prior):
                 single_eval_pos = full_data['single_eval_pos']
                 data = (full_data['x'].to(device),
                         full_data['y'][:, :single_eval_pos].to(device))
-                if (torch.isnan(data[0]).any() or torch.isnan(data[1]).any()):
+                if torch.isnan(data[0]).any() or torch.isnan(data[1]).any():
                     continue
                 targets = full_data['target_y'].to(device)
 
@@ -80,39 +112,63 @@ def train(
                     y_norm = (data[1] - y_mean) / y_std
                     data = (data[0], y_norm)
 
-                output = model(data, single_eval_pos=single_eval_pos)
-                targets = targets[:, single_eval_pos:]
-                if regression_task:
-                    targets = (targets - y_mean) / y_std
-                if classification_task:
-                    targets = targets.reshape((-1,)).to(torch.long)
-                    output = output.view(-1, output.shape[-1])
+                with autocast_ctx:
+                    output = model(data, single_eval_pos=single_eval_pos)
+                    targets = targets[:, single_eval_pos:]
+                    if regression_task:
+                        targets = (targets - y_mean) / y_std
+                    if classification_task:
+                        targets = targets.reshape((-1,)).to(torch.long)
+                        output = output.view(-1, output.shape[-1])
+                    losses = criterion(output, targets)
+                    loss = losses.mean() / accumulate_gradients
 
-                losses = criterion(output, targets)
-                loss = losses.mean() / accumulate_gradients
                 loss.backward()
                 total_loss += loss.cpu().detach().item() * accumulate_gradients
 
                 if (i + 1) % accumulate_gradients == 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
-                    optimizer.step()
-                    optimizer.zero_grad()
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.).item()
+                    total_grad_norm += grad_norm
+                    grads_finite = all(
+                        p.grad is None or torch.isfinite(p.grad).all()
+                        for p in model.parameters()
+                    )
+                    if grads_finite:
+                        optimizer.step()
+                        n_optimizer_steps += 1
+                    else:
+                        skipped_steps += 1
+                    optimizer.zero_grad(set_to_none=True)
 
             end_time = time.time()
             mean_loss = total_loss / len(prior)
-            model.eval()
-            optimizer.eval()
+            update_steps = prior.num_steps // accumulate_gradients
+            mean_grad_norm = total_grad_norm / max(update_steps, 1)
+            param_norm = sum(p.data.norm().item() ** 2 for p in model.parameters()) ** 0.5
+            param_drift = param_norm - init_param_norm
 
+            diag_parts = [f"grad_norm {mean_grad_norm:.3f}", f"param_drift {param_drift:+.3f}"]
+            if skipped_steps:
+                diag_parts.append(f"SKIPPED {skipped_steps}/{update_steps} steps (inf/nan grads)")
+            diag_str = " | ".join(diag_parts) + curriculum_str
+
+            model.eval()
+            if hasattr(optimizer, 'eval'):
+                optimizer.eval()
+
+            raw_model = model.module if multi_gpu else model
             training_state = {
                 'epoch': epoch,
                 'architecture': {
-                    'num_layers': int((model.module if multi_gpu else model).num_layers),
-                    'embedding_size': int((model.module if multi_gpu else model).embedding_size),
-                    'num_attention_heads': int((model.module if multi_gpu else model).num_attention_heads),
-                    'mlp_hidden_size': int((model.module if multi_gpu else model).mlp_hidden_size),
-                    'num_outputs': int((model.module if multi_gpu else model).num_outputs)
+                    'num_layers': int(raw_model.num_layers),
+                    'embedding_size': int(raw_model.embedding_size),
+                    'num_attention_heads': int(raw_model.num_attention_heads),
+                    'mlp_hidden_size': int(raw_model.mlp_hidden_size),
+                    'num_outputs': int(raw_model.num_outputs),
+                    'residual_decay': float(raw_model.residual_decay),
+                    'num_thinking_rows': int(raw_model.num_thinking_rows),
                 },
-                'model': (model.module if multi_gpu else model).state_dict(),
+                'model': raw_model.state_dict(),
                 'optimizer': optimizer.state_dict()
             }
             task_name = 'classifier' if classification_task else 'regressor'
@@ -120,9 +176,9 @@ def train(
 
             for callback in callbacks:
                 if type(criterion) is FullSupportBarDistribution:
-                    callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, (model.module if multi_gpu else model), dist=criterion)
+                    callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, raw_model, dist=criterion, diag=diag_str)
                 else:
-                    callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, (model.module if multi_gpu else model))
+                    callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, raw_model, diag=diag_str)
     except KeyboardInterrupt:
         pass
     finally:

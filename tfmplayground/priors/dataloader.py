@@ -178,6 +178,76 @@ class TabICLPriorDataLoader(DataLoader):
         return self.num_steps
 
 
+class LiveRegressionPriorDataLoader:
+    """
+    Generates regression batches on-the-fly from a TICL MLPPrior.
+    Supports curriculum learning: call on_epoch_start(epoch, total_epochs) each epoch
+    to linearly ramp num_features and num_rows from their min to max values.
+
+    Args:
+        num_steps: batches per epoch
+        batch_size: datasets per batch
+        max_features: target (hard) number of features
+        max_rows: target (hard) sequence length
+        min_features: starting number of features for curriculum (default 1)
+        min_rows: starting sequence length for curriculum (default 50)
+        device: torch device
+    """
+
+    def __init__(
+        self,
+        num_steps: int,
+        batch_size: int,
+        max_features: int = 100,
+        max_rows: int = 1000,
+        min_features: int = 1,
+        min_rows: int = 50,
+        device='cuda',
+    ):
+        from .utils import build_ticl_prior
+        self.num_steps = num_steps
+        self.batch_size = batch_size
+        self.max_features = max_features
+        self.max_rows = max_rows
+        self.min_features = min_features
+        self.min_rows = min_rows
+        self.device = device
+        # start at full difficulty; call on_epoch_start to enable curriculum
+        self.cur_features = max_features
+        self.cur_rows = max_rows
+        self._prior = build_ticl_prior("mlp")
+
+    def on_epoch_start(self, epoch: int, total_epochs: int):
+        """Linearly ramp difficulty from (min_features, min_rows) to (max_features, max_rows)."""
+        t = min(1.0, (epoch - 1) / max(1, total_epochs - 1))
+        self.cur_features = max(self.min_features, round(self.min_features + t * (self.max_features - self.min_features)))
+        self.cur_rows = max(self.min_rows, round(self.min_rows + t * (self.max_rows - self.min_rows)))
+
+    def __iter__(self):
+        loader = TICLPriorDataset(
+            prior=self._prior,
+            num_steps=self.num_steps,
+            batch_size=self.batch_size,
+            min_eval_pos=self.cur_rows // 2,
+            n_samples=self.cur_rows,
+            device=self.device,
+            num_features=self.cur_features,
+        )
+        for (info, x, y), target_y, single_eval_pos in loader:
+            x = x.permute(1, 0, 2)
+            y = y.permute(1, 0)
+            target_y = target_y.permute(1, 0)
+            yield dict(
+                x=x.to(self.device),
+                y=y.to(self.device),
+                target_y=target_y.to(self.device),
+                single_eval_pos=single_eval_pos,
+            )
+
+    def __len__(self):
+        return self.num_steps
+
+
 class TICLPriorDataLoader(DataLoader):
     """DataLoader sampling synthetic prior data from TICL's PriorDataLoader.
 

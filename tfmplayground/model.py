@@ -1,270 +1,330 @@
-import math
-import warnings
-from typing import Tuple, Callable
+from typing import Tuple
 
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch.nn.modules.transformer import MultiheadAttention, Linear, LayerNorm
+
+
+class LowerPrecisionRMSNorm(nn.RMSNorm):
+    """RMSNorm that upcasts to float32 for the norm step to avoid bfloat16 instability."""
+    def forward(self, x):
+        if x.dtype in (torch.float16, torch.bfloat16):
+            return super().forward(x.float()).to(x.dtype)
+        return super().forward(x)
+
+
+class ThinkingRows(nn.Module):
+    """Prepends N learnable row tokens before the data, letting the model accumulate
+    intermediate representations before attending to test rows."""
+    def __init__(self, num_thinking_rows: int, embedding_size: int):
+        super().__init__()
+        self.num_thinking_rows = num_thinking_rows
+        if num_thinking_rows > 0:
+            self.row_tokens = nn.Parameter(torch.empty(num_thinking_rows, embedding_size))
+            nn.init.normal_(self.row_tokens)
+
+    def forward(self, x: torch.Tensor, single_eval_pos: int):
+        if self.num_thinking_rows == 0:
+            return x, single_eval_pos
+        b, r, c, e = x.shape
+        thinking = self.row_tokens.unsqueeze(0).unsqueeze(2).expand(b, -1, c, e)
+        x = torch.cat([thinking, x], dim=1)
+        return x, single_eval_pos + self.num_thinking_rows
 
 
 class NanoTabPFNModel(nn.Module):
-    def __init__(self, embedding_size: int, num_attention_heads: int, mlp_hidden_size: int, num_layers: int, num_outputs: int):
-        """ Initializes the feature/target encoder, transformer stack and decoder """
+    def __init__(self, embedding_size: int, num_attention_heads: int, mlp_hidden_size: int,
+                 num_layers: int, num_outputs: int, residual_decay: float = 1.0,
+                 num_thinking_rows: int = 0):
         super().__init__()
         self.embedding_size = embedding_size
         self.num_attention_heads = num_attention_heads
         self.mlp_hidden_size = mlp_hidden_size
         self.num_layers = num_layers
         self.num_outputs = num_outputs
+        self.residual_decay = residual_decay
+        self.num_thinking_rows = num_thinking_rows
+
         self.feature_encoder = FeatureEncoder(embedding_size)
         self.target_encoder = TargetEncoder(embedding_size)
-        self.transformer_encoder = TransformerEncoderStack(num_layers, embedding_size, num_attention_heads, mlp_hidden_size)
+        self.thinking_rows = ThinkingRows(num_thinking_rows, embedding_size)
+        self.transformer_encoder = TransformerEncoderStack(
+            num_layers, embedding_size, num_attention_heads, mlp_hidden_size,
+            residual_decay=residual_decay,
+        )
         self.decoder = Decoder(embedding_size, mlp_hidden_size, num_outputs)
 
+        # bucket borders baked into the model so checkpoints are self-contained
+        self.register_buffer("borders", None, persistent=True)
+
     def forward(self, *args, **kwargs) -> torch.Tensor:
-        """
-        Provides two interfaces:
-        model(X_train, y_train, X_test)
-            Args:
-                X_train: (torch.Tensor) a tensor of shape (batch_size, num_train_datapoints, num_features)
-                y_train: (torch.Tensor) a tensor of shape (batch_size, num_train_datapoints, 1)
-                X_test: (torch.Tensor) a tensor of shape (batch_size, num_test_datapoints, num_features)
-
-        model((x,y), single_eval_pos)
-            Args:
-                x: (torch.Tensor) a tensor of shape (batch_size, num_datapoints, num_features)
-                y: (torch.Tensor) a tensor of shape (batch_size, num_train_datapoints, 1)
-
-
-        The former is similar to the sklearn interface.
-        In the latter x is the concatenation of X_train and X_test, y is y_train and single_eval_pos is the length of X_train.
-        Our model internally works with the latter representation, so we convert the former into the latter and forward it to
-        _forward.
-
-        Returns:
-            (torch.Tensor) a tensor of shape (batch_size, num_test_datapoints, num_classes),
-                           which represent the predicted logits
-        """
         if len(args) == 3:
-            # case model(train_x, train_y, test_x)
             x = args[0]
             if args[2] is not None:
                 x = torch.cat((x, args[2]), dim=1)
             return self._forward((x, args[1]), single_eval_pos=args[0].shape[1], **kwargs)
         elif len(args) == 1 and isinstance(args[0], tuple):
-            # case model((x,y), single_eval_pos=None)
             return self._forward(*args, **kwargs)
 
-    def _forward(self, src: Tuple[torch.Tensor, torch.Tensor], single_eval_pos: int, num_mem_chunks: int = 1) -> torch.Tensor:
+    def _forward(self, src: Tuple[torch.Tensor, torch.Tensor], single_eval_pos: int,
+                 num_mem_chunks: int = 1) -> torch.Tensor:
+        # num_mem_chunks kept for API compat but no longer used (replaced by torch.compile)
         x_src, y_src = src
-        # we expect the labels to look like (batches, num_train_datapoints, 1),
-        # so we add the last dimension if it is missing
         if len(y_src.shape) < len(x_src.shape):
             y_src = y_src.unsqueeze(-1)
-        # from here on B=Batches, R=Rows, C=Columns, E=embedding size
-        # converts scalar values to embeddings, so (B,R,C-1) -> (B,R,C-1,E)
         x_src = self.feature_encoder(x_src, single_eval_pos)
         num_rows = x_src.shape[1]
-        # padds the y_train up to y by using the mean,
-        # then converts scalar values to embeddings (B,R,1,E)
         y_src = self.target_encoder(y_src, num_rows)
-        # concatenates the feature embeddings with the target embeddings
-        # to give us the full table of embeddings (B,R,C,E))
         src = torch.cat([x_src, y_src], 2)
-        # repeatedly applies the transformer block on (B,R,C,E)
-        output = self.transformer_encoder(src, single_eval_pos, num_mem_chunks=num_mem_chunks)
-        # selects the target embeddings (B,num_targets,1,E)
+        src, single_eval_pos = self.thinking_rows(src, single_eval_pos)
+        output = self.transformer_encoder(src, single_eval_pos)
         output = output[:, single_eval_pos:, -1, :]
-        # runs the embeddings through the decoder to get
-        # the logits of our predictions (B,num_targets,num_classes)
         output = self.decoder(output)
         return output
 
 
-# handle variable number of features in here?
 class FeatureEncoder(nn.Module):
     def __init__(self, embedding_size: int):
-        """ Creates the linear layer that we will use to embed our features. """
         super().__init__()
         self.linear_layer = nn.Linear(1, embedding_size)
 
     def forward(self, x: torch.Tensor, single_eval_pos: int) -> torch.Tensor:
-        """
-        Normalizes all the features based on the mean and std of the features of the training data,
-        clips them between -100 and 100, then applies a linear layer to embed the features.
-
-        Args:
-            x: (torch.Tensor) a tensor of shape (batch_size, num_rows, num_features)
-            single_eval_pos: (int) the number of datapoints in X_train
-        Returns:
-            (torch.Tensor) a tensor of shape (batch_size, num_rows, num_features, embedding_size), representing
-                           the embeddings of the features
-        """
         x = x.unsqueeze(-1)
-        mean = torch.mean(x[:, :single_eval_pos], dim=1, keepdims=True)
-        std = torch.std(x[:, :single_eval_pos], dim=1, keepdims=True) + 1e-8
-        x = (x-mean)/std
+        mean = x[:, :single_eval_pos].mean(dim=1, keepdim=True)
+        std = x[:, :single_eval_pos].std(dim=1, keepdim=True) + 1e-8
+        x = (x - mean) / std
         x = torch.clip(x, min=-100, max=100)
         return self.linear_layer(x)
 
 
 class TargetEncoder(nn.Module):
     def __init__(self, embedding_size: int):
-        """ Creates the linear layer that we will use to embed our targets. """
         super().__init__()
         self.linear_layer = nn.Linear(1, embedding_size)
 
     def forward(self, y_train: torch.Tensor, num_rows: int) -> torch.Tensor:
-        """
-        Pads up y_train to the full length of y using the mean per dataset and then embeds it using a linear layer
-
-        Args:
-            y_train: (torch.Tensor) a tensor of shape (batch_size, num_train_datapoints, 1)
-            num_rows: (int) the full length of y
-        Returns:
-            (torch.Tensor) a tensor of shape (batch_size, num_rows, 1, embedding_size), representing
-                           the embeddings of the targets
-        """
-        # nan padding & nan handler instead?
-        mean = torch.mean(y_train, axis=1, keepdim=True)
-        padding = mean.repeat(1, num_rows-y_train.shape[1], 1)
+        mean = y_train.mean(dim=1, keepdim=True)
+        padding = mean.repeat(1, num_rows - y_train.shape[1], 1)
         y = torch.cat([y_train, padding], dim=1)
         y = y.unsqueeze(-1)
         return self.linear_layer(y)
 
 
 class TransformerEncoderStack(nn.Module):
-    def __init__(self, num_layers: int, embedding_size: int, num_attention_heads: int, mlp_hidden_size: int):
-        """ Instantiates num_layers many Transformer Blocks and stores them in a list so we can use them in the forward """
+    def __init__(self, num_layers: int, embedding_size: int, num_attention_heads: int,
+                 mlp_hidden_size: int, residual_decay: float = 1.0):
         super().__init__()
-        self.transformer_blocks = nn.ModuleList()
-        for _ in range(num_layers):
-            self.transformer_blocks.append(TransformerEncoderLayer(embedding_size, num_attention_heads, mlp_hidden_size))
+        self.residual_decay = residual_decay
+        self.transformer_blocks = nn.ModuleList([
+            TransformerEncoderLayer(embedding_size, num_attention_heads, mlp_hidden_size)
+            for _ in range(num_layers)
+        ])
 
-    def forward(self, x: torch.Tensor, single_eval_position: int, num_mem_chunks: int = 1) -> torch.Tensor:
-        """
-        Takes the embeddings of all the cells of the table as input and applies num_layers many Transformer blocks.
-
-        Args:
-            x: (torch.Tensor) a tensor of shape (batch_size, num_rows, num_features, embedding_size) that contains all the embeddings
-                              for all the cells in the table
-            single_eval_position: (int) the length of X_train
-            num_mem_chunks: (int) Number of chunks that memory-intense operations will be split into. Higher values use less memory but are slower.
-                                  Needs to be set to 1 during training to get correct gradients.
-
-        Returns
-            (torch.Tensor) a tensor of shape (batch_size, num_rows, num_features, embedding_size)
-        """
-        for block in self.transformer_blocks:
-            x = block(x, single_eval_position=single_eval_position, num_mem_chunks=num_mem_chunks)
+    def forward(self, x: torch.Tensor, single_eval_position: int) -> torch.Tensor:
+        for i, block in enumerate(self.transformer_blocks):
+            if self.residual_decay != 1.0:
+                x = x * (self.residual_decay ** i)
+            x = block(x, single_eval_position)
         return x
 
 
 class TransformerEncoderLayer(nn.Module):
-    """
-    Modified version of older version of https://github.com/pytorch/pytorch/blob/v2.6.0/torch/nn/modules/transformer.py#L630
-    """
-
     def __init__(self, embedding_size: int, nhead: int, mlp_hidden_size: int,
-                 layer_norm_eps: float = 1e-5, batch_first: bool = True,
-                 device=None, dtype=None):
+                 layer_norm_eps: float = 1e-5, device=None, dtype=None):
         super().__init__()
-        self.self_attention_between_datapoints = MultiheadAttention(embedding_size, nhead, batch_first=batch_first, device=device, dtype=dtype)
-        self.self_attention_between_features = MultiheadAttention(embedding_size, nhead, batch_first=batch_first, device=device, dtype=dtype)
+        assert embedding_size % nhead == 0, "embedding_size must be divisible by nhead"
+        self.num_heads = nhead
+        self.head_dim = embedding_size // nhead
 
-        self.linear1 = Linear(embedding_size, mlp_hidden_size, device=device, dtype=dtype)
-        self.linear2 = Linear(mlp_hidden_size, embedding_size, device=device, dtype=dtype)
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        # fused QKV projection — one matrix instead of three; enables batched Muon update
+        self.qkv_features = nn.Linear(embedding_size, 3 * embedding_size, **factory_kwargs)
+        self.qkv_datapoints = nn.Linear(embedding_size, 3 * embedding_size, **factory_kwargs)
 
-        self.norm1 = LayerNorm(embedding_size, eps=layer_norm_eps, device=device, dtype=dtype)
-        self.norm2 = LayerNorm(embedding_size, eps=layer_norm_eps, device=device, dtype=dtype)
-        self.norm3 = LayerNorm(embedding_size, eps=layer_norm_eps, device=device, dtype=dtype)
+        self.linear1 = nn.Linear(embedding_size, mlp_hidden_size, **factory_kwargs)
+        self.linear2 = nn.Linear(mlp_hidden_size, embedding_size, **factory_kwargs)
 
-    def forward(self, src: torch.Tensor, single_eval_position: int, num_mem_chunks: int = 1) -> torch.Tensor:
-        """
-        Takes the embeddings of the table as input and applies self-attention between features and self-attention between datapoints
-        followed by a simple 2 layer MLP.
+        self.norm1 = LowerPrecisionRMSNorm(embedding_size, eps=layer_norm_eps, **factory_kwargs)
+        self.norm2 = LowerPrecisionRMSNorm(embedding_size, eps=layer_norm_eps, **factory_kwargs)
+        self.norm3 = LowerPrecisionRMSNorm(embedding_size, eps=layer_norm_eps, **factory_kwargs)
 
-        Args:
-            src: (torch.Tensor) a tensor of shape (batch_size, num_rows, num_features, embedding_size) that contains all the embeddings
-                                for all the cells in the table
-            single_eval_position: (int) the length of X_train
-            num_mem_chunks: (int) Number of chunks that memory-intense operations will be split into. Higher values use less memory but are slower.
-                                  Needs to be set to 1 during training to get correct gradients.
-        Returns
-            (torch.Tensor) a tensor of shape (batch_size, num_rows, num_features, embedding_size)
-        """
-        batch_size, rows_size, col_size, embedding_size = src.shape
-        # attention between features
-        src = src.reshape(batch_size*rows_size, col_size, embedding_size)
-        @memory_chunking(num_mem_chunks)
-        def feature_attention(x):
-            return self.self_attention_between_features(x, x, x)[0] + x
-        src = feature_attention(src)
-        src = src.reshape(batch_size, rows_size, col_size, embedding_size)
+    def forward(self, src: torch.Tensor, single_eval_position: int) -> torch.Tensor:
+        b, r, c, e = src.shape
+        h, hd = self.num_heads, self.head_dim
+
+        # --- feature attention: each row attends over its columns ---
+        x = src.reshape(b * r, c, e)
+        qkv = self.qkv_features(x).reshape(b * r, c, 3, h, hd).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)
+        x = F.scaled_dot_product_attention(q, k, v).transpose(1, 2).reshape(b * r, c, e)
+        src = (x + src.reshape(b * r, c, e)).reshape(b, r, c, e)
         src = self.norm1(src)
-        # attention between datapoints
-        src = src.transpose(1, 2)
-        src = src.reshape(batch_size*col_size, rows_size, embedding_size)
-        @memory_chunking(num_mem_chunks)
-        def datapoint_attention(x):
-            x_left = self.self_attention_between_datapoints(x[:, :single_eval_position], x[:, :single_eval_position], x[:, :single_eval_position])[0]
-            # test data attends to the training data
-            x_right = self.self_attention_between_datapoints(x[:, single_eval_position:], x[:, :single_eval_position], x[:, :single_eval_position])[0]
-            return torch.cat([x_left, x_right], dim=1) + x
-        src = datapoint_attention(src)
-        src = src.reshape(batch_size, col_size, rows_size, embedding_size)
-        src = src.transpose(2, 1)
+
+        # --- datapoint attention: each column attends over its rows ---
+        # test rows attend to train rows only; train rows attend to each other
+        x = src.transpose(1, 2).reshape(b * c, r, e)
+        qkv = self.qkv_datapoints(x).reshape(b * c, r, 3, h, hd).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)
+
+        q_left, q_right = q.split([single_eval_position, r - single_eval_position], dim=2)
+        k_train = k[:, :, :single_eval_position, :]
+        v_train = v[:, :, :single_eval_position, :]
+
+        x_left = F.scaled_dot_product_attention(q_left, k_train, v_train)
+        x_right = F.scaled_dot_product_attention(q_right, k_train, v_train)
+        x = torch.cat([x_left, x_right], dim=2).transpose(1, 2).reshape(b * c, r, e)
+
+        src = (x + src.transpose(1, 2).reshape(b * c, r, e)).reshape(b, c, r, e).transpose(2, 1)
         src = self.norm2(src)
-        # MLP after attention
-        src = src.reshape(-1, embedding_size)
-        @memory_chunking(num_mem_chunks)
-        def mlp(x):
-            return self.linear2(F.gelu(self.linear1(x))) + x
-        src = mlp(src)
-        src = src.reshape(batch_size, rows_size, col_size, embedding_size)
+
+        # --- MLP ---
+        src = src + self.linear2(F.gelu(self.linear1(src)))
         src = self.norm3(src)
+
         return src
-
-
-def memory_chunking(num_mem_chunks: int) -> callable:
-    """
-    This decorator will split the first dimension of the input into chunks and apply the wrapped function
-    to each chunk separately.
-    Args:
-        num_mem_chunks: (int) Number of chunks to split the input into, higher values use less memory but are slower.
-                          Needs to be set to 1 during training to disable chunking and get correct gradients.
-    """
-    def decorator(func: Callable[[torch.Tensor], torch.Tensor]) -> Callable[[torch.Tensor], torch.Tensor]:
-        def wrapper(x: torch.Tensor) -> torch.Tensor:
-            if num_mem_chunks <= 1 or x.shape[0] == 0:
-                return func(x)
-            elif torch.is_grad_enabled():
-                warnings.warn("Memory chunking is disabled since gradient computation is enabled to avoid incorrect gradients. "
-                              "Please use `with torch.no_grad():` during inference to enable chunking.")
-                return func(x)
-            chunk_size = max(1, math.ceil(x.shape[0] / num_mem_chunks))
-            for x_split in torch.split(x, split_size_or_sections=chunk_size, dim=0):
-                x_split[:] = func(x_split) # in-place modification to save memory, will cause wrong gradients if used during training
-            return x
-        return wrapper
-    return decorator
 
 
 class Decoder(nn.Module):
     def __init__(self, embedding_size: int, mlp_hidden_size: int, num_outputs: int):
-        """ Initializes the linear layers for use in the forward """
         super().__init__()
         self.linear1 = nn.Linear(embedding_size, mlp_hidden_size)
         self.linear2 = nn.Linear(mlp_hidden_size, num_outputs)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Applies an MLP to the embeddings to get the logits
-
-        Args:
-            x: (torch.Tensor) a tensor of shape (batch_size, num_rows, embedding_size)
-        Returns:
-            (torch.Tensor) a tensor of shape (batch_size, num_rows, num_outputs)
-        """
         return self.linear2(F.gelu(self.linear1(x)))
+
+
+# ---------------------------------------------------------------------------
+# Legacy architecture (v1): separate q/k/v projections + out_proj + LayerNorm
+# Used to load checkpoints trained before the fused-QKV / RMSNorm rewrite.
+# ---------------------------------------------------------------------------
+
+class _LegacyAttentionProjections(nn.Module):
+    """Holds the four projection matrices; forward is handled by the parent layer."""
+    def __init__(self, embedding_size: int):
+        super().__init__()
+        self.q_proj   = nn.Linear(embedding_size, embedding_size)
+        self.k_proj   = nn.Linear(embedding_size, embedding_size)
+        self.v_proj   = nn.Linear(embedding_size, embedding_size)
+        self.out_proj  = nn.Linear(embedding_size, embedding_size)
+
+
+class _LegacyTransformerEncoderLayer(nn.Module):
+    def __init__(self, embedding_size: int, nhead: int, mlp_hidden_size: int,
+                 layer_norm_eps: float = 1e-5):
+        super().__init__()
+        assert embedding_size % nhead == 0
+        self.num_heads = nhead
+        self.head_dim  = embedding_size // nhead
+
+        self.self_attention_between_features   = _LegacyAttentionProjections(embedding_size)
+        self.self_attention_between_datapoints = _LegacyAttentionProjections(embedding_size)
+
+        self.linear1 = nn.Linear(embedding_size, mlp_hidden_size)
+        self.linear2 = nn.Linear(mlp_hidden_size, embedding_size)
+
+        self.norm1 = nn.LayerNorm(embedding_size, eps=layer_norm_eps)
+        self.norm2 = nn.LayerNorm(embedding_size, eps=layer_norm_eps)
+        self.norm3 = nn.LayerNorm(embedding_size, eps=layer_norm_eps)
+
+    def _attn(self, proj: _LegacyAttentionProjections,
+              q_in: torch.Tensor, k_in: torch.Tensor, v_in: torch.Tensor) -> torch.Tensor:
+        b, sq, e = q_in.shape
+        sk       = k_in.shape[1]
+        h, hd    = self.num_heads, self.head_dim
+        q = proj.q_proj(q_in).reshape(b, sq, h, hd).transpose(1, 2)
+        k = proj.k_proj(k_in).reshape(b, sk, h, hd).transpose(1, 2)
+        v = proj.v_proj(v_in).reshape(b, sk, h, hd).transpose(1, 2)
+        out = F.scaled_dot_product_attention(q, k, v).transpose(1, 2).reshape(b, sq, e)
+        return proj.out_proj(out)
+
+    def forward(self, src: torch.Tensor, single_eval_position: int) -> torch.Tensor:
+        b, r, c, e = src.shape
+        h, hd = self.num_heads, self.head_dim
+
+        # feature attention
+        x   = src.reshape(b * r, c, e)
+        out = self._attn(self.self_attention_between_features, x, x, x)
+        src = self.norm1((out + x).reshape(b, r, c, e))
+
+        # datapoint attention (test rows attend to train only)
+        x   = src.transpose(1, 2).reshape(b * c, r, e)
+        attn = self.self_attention_between_datapoints
+        sep  = single_eval_position
+
+        q_full = attn.q_proj(x).reshape(b * c, r, h, hd).transpose(1, 2)
+        k_full = attn.k_proj(x).reshape(b * c, r, h, hd).transpose(1, 2)
+        v_full = attn.v_proj(x).reshape(b * c, r, h, hd).transpose(1, 2)
+
+        k_train = k_full[:, :, :sep]
+        v_train = v_full[:, :, :sep]
+        q_left, q_right = q_full.split([sep, r - sep], dim=2)
+
+        out_left  = F.scaled_dot_product_attention(q_left,  k_train, v_train)
+        out_right = F.scaled_dot_product_attention(q_right, k_train, v_train)
+        out = torch.cat([out_left, out_right], dim=2).transpose(1, 2).reshape(b * c, r, e)
+        out = attn.out_proj(out)
+        src = self.norm2((out + x).reshape(b, c, r, e).transpose(2, 1))
+
+        # MLP
+        src = self.norm3(src + self.linear2(F.gelu(self.linear1(src))))
+        return src
+
+
+class _LegacyTransformerEncoderStack(nn.Module):
+    def __init__(self, num_layers: int, embedding_size: int, nhead: int, mlp_hidden_size: int):
+        super().__init__()
+        self.transformer_blocks = nn.ModuleList([
+            _LegacyTransformerEncoderLayer(embedding_size, nhead, mlp_hidden_size)
+            for _ in range(num_layers)
+        ])
+
+    def forward(self, x: torch.Tensor, single_eval_position: int) -> torch.Tensor:
+        for block in self.transformer_blocks:
+            x = block(x, single_eval_position)
+        return x
+
+
+class NanoTabPFNModelV1(nn.Module):
+    """
+    Legacy model architecture (before fused-QKV / RMSNorm rewrite).
+    Use this to load checkpoints trained with the old code.
+    """
+    def __init__(self, embedding_size: int, num_attention_heads: int,
+                 mlp_hidden_size: int, num_layers: int, num_outputs: int, **_):
+        super().__init__()
+        self.embedding_size      = embedding_size
+        self.num_attention_heads = num_attention_heads
+        self.mlp_hidden_size     = mlp_hidden_size
+        self.num_layers          = num_layers
+        self.num_outputs         = num_outputs
+
+        self.feature_encoder  = FeatureEncoder(embedding_size)
+        self.target_encoder   = TargetEncoder(embedding_size)
+        self.transformer_encoder = _LegacyTransformerEncoderStack(
+            num_layers, embedding_size, num_attention_heads, mlp_hidden_size)
+        self.decoder = Decoder(embedding_size, mlp_hidden_size, num_outputs)
+
+        self.register_buffer("borders", None, persistent=True)
+
+    def forward(self, *args, **kwargs) -> torch.Tensor:
+        if len(args) == 3:
+            x = args[0]
+            if args[2] is not None:
+                x = torch.cat((x, args[2]), dim=1)
+            return self._forward((x, args[1]), single_eval_pos=args[0].shape[1], **kwargs)
+        elif len(args) == 1 and isinstance(args[0], tuple):
+            return self._forward(*args, **kwargs)
+
+    def _forward(self, src: Tuple[torch.Tensor, torch.Tensor], single_eval_pos: int,
+                 num_mem_chunks: int = 1) -> torch.Tensor:
+        x_src, y_src = src
+        if len(y_src.shape) < len(x_src.shape):
+            y_src = y_src.unsqueeze(-1)
+        x_src = self.feature_encoder(x_src, single_eval_pos)
+        num_rows = x_src.shape[1]
+        y_src = self.target_encoder(y_src, num_rows)
+        src = torch.cat([x_src, y_src], 2)
+        output = self.transformer_encoder(src, single_eval_pos)
+        output = output[:, single_eval_pos:, -1, :]
+        return self.decoder(output)

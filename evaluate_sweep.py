@@ -50,9 +50,9 @@ def short_name(checkpoint_path: str) -> str:
     if len(parts) > 3:
         # drop date, time, uid (first 3 dash-separated tokens)
         remainder = "-".join(parts[3:])
-        remainder = remainder.replace("-regressor-checkpoint.pth", "")
+        remainder = remainder.replace("-regressor-checkpoint.pth", "").replace("-regressor-best.pth", " (best)")
         return remainder
-    return base.replace("-regressor-checkpoint.pth", "")
+    return base.replace("-regressor-checkpoint.pth", "").replace("-regressor-best.pth", " (best)")
 
 
 class _RFWithPreprocessing:
@@ -112,7 +112,8 @@ def evaluate_checkpoint(checkpoint_path: str, tasks: list, max_samples: int, max
 
 
 def auto_discover(experiments_dir: str) -> list[tuple[str, str]]:
-    """Find the most recent checkpoint for each named sweep config."""
+    """Find the most recent checkpoint for each named sweep config.
+    Prefers *-regressor-best.pth over *-regressor-checkpoint.pth when available."""
     pattern = os.path.join(experiments_dir, "*", "*", "*-regressor-checkpoint.pth")
     all_ckpts = sorted(glob.glob(pattern))
     # group by config name (parent-parent dir = config name)
@@ -120,11 +121,15 @@ def auto_discover(experiments_dir: str) -> list[tuple[str, str]]:
     for path in all_ckpts:
         config = os.path.basename(os.path.dirname(os.path.dirname(path)))
         by_config.setdefault(config, []).append(path)
-    # pick the most recent run per config (last alphabetically = latest timestamp)
+    # pick the most recent run per config, preferring best.pth if it exists
     result = []
     for config, paths in sorted(by_config.items()):
         latest = sorted(paths)[-1]
-        result.append((config, latest))
+        best = latest.replace("-regressor-checkpoint.pth", "-regressor-best.pth")
+        if os.path.exists(best):
+            result.append((f"{config} (best)", best))
+        else:
+            result.append((config, latest))
     return result
 
 

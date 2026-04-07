@@ -31,6 +31,7 @@ dependencies = [
     "interpret",
     "numba",
     "mlflow",
+    "marimo>=0.22.4",
 ]
 
 [project.optional-dependencies]

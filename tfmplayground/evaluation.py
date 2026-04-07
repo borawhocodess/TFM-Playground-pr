@@ -126,7 +126,6 @@ def get_openml_predictions(
         targets = np.concatenate(targets, axis=0)
         probabilities = np.concatenate(probabilities, axis=0) if len(probabilities) > 0 else None
         dataset_predictions[str(dataset.name)] = (targets, y_pred, probabilities)
-        print(f"{task_id} {n_features:<5} {n_samples:<10} {dataset.name}")
     return dataset_predictions
 
 

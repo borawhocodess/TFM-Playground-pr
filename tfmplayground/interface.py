@@ -72,6 +72,8 @@ def init_model_from_state_dict_file(file_path):
             num_outputs=arch['num_outputs'],
             residual_decay=arch.get('residual_decay', 1.0),
             num_thinking_rows=arch.get('num_thinking_rows', 0),
+            use_qassmax=arch.get('use_qassmax', False),
+            use_quantile_loss=arch.get('use_quantile_loss', False),
         )
 
     model.load_state_dict(model_sd, strict=True)
@@ -203,12 +205,15 @@ class NanoTabPFNRegressor():
             bucket_edges = torch.load(dist, map_location=device)
             dist = FullSupportBarDistribution(bucket_edges).float()
 
-        # derive dist from model's baked-in borders if not provided explicitly
-        if dist is None:
-            if model.borders is not None:
-                dist = FullSupportBarDistribution(model.borders.float())
-            else:
-                raise ValueError("No dist provided and model has no borders buffer. Pass dist explicitly.")
+        # quantile-loss models have no borders — detect via model flag
+        self.use_quantile = getattr(model, 'use_quantile_loss', False)
+
+        if not self.use_quantile:
+            if dist is None:
+                if model.borders is not None:
+                    dist = FullSupportBarDistribution(model.borders.float())
+                else:
+                    raise ValueError("No dist provided and model has no borders buffer. Pass dist explicitly.")
 
         self.model = model.to(device)
         self.device = device
@@ -236,6 +241,9 @@ class NanoTabPFNRegressor():
             X_tensor = torch.tensor(X, dtype=torch.float32, device=self.device).unsqueeze(0)
             y_tensor = torch.tensor(y_context, dtype=torch.float32, device=self.device).unsqueeze(0)
             logits = self.model((X_tensor, y_tensor), single_eval_pos=len(self.X_train), num_mem_chunks=self.num_mem_chunks).squeeze(0)
+            if self.use_quantile:
+                # point estimate = mean of 999 quantile predictions
+                return logits.float().mean(dim=-1).cpu().float().numpy()
             return self.dist.mean(logits.float()).cpu().float().numpy()
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:

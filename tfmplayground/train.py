@@ -8,6 +8,7 @@ import schedulefree
 import os
 
 from tfmplayground.callbacks import Callback
+from tfmplayground.losses import QuantileLoss
 from tfmplayground.model import NanoTabPFNModel
 from tfmplayground.muon import SingleDeviceMuonWithAuxAdam
 from tfmplayground.utils import get_default_device
@@ -80,8 +81,9 @@ def train(
     if cosine_decay and optimizer_type != 'schedulefree':
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=lr * 0.01)
 
+    quantile_task = isinstance(criterion, QuantileLoss)
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
-    regression_task = not classification_task
+    regression_task = not classification_task and not quantile_task
 
     device = torch.device(device) if isinstance(device, str) else device
     use_amp = mixed_precision and device.type == 'cuda'
@@ -116,7 +118,7 @@ def train(
                     continue
                 targets = full_data['target_y'].to(device)
 
-                if regression_task:
+                if regression_task or quantile_task:
                     y_mean = data[1].mean(dim=1, keepdim=True)
                     y_std = data[1].std(dim=1, keepdim=True) + 1e-8
                     y_norm = (data[1] - y_mean) / y_std
@@ -125,7 +127,7 @@ def train(
                 with autocast_ctx:
                     output = model(data, single_eval_pos=single_eval_pos)
                     targets = targets[:, single_eval_pos:]
-                    if regression_task:
+                    if regression_task or quantile_task:
                         targets = (targets - y_mean) / y_std
                     if classification_task:
                         targets = targets.reshape((-1,)).to(torch.long)
@@ -180,6 +182,8 @@ def train(
                     'num_outputs': int(raw_model.num_outputs),
                     'residual_decay': float(raw_model.residual_decay),
                     'num_thinking_rows': int(raw_model.num_thinking_rows),
+                    'use_qassmax': bool(raw_model.use_qassmax),
+                    'use_quantile_loss': bool(raw_model.use_quantile_loss),
                 },
                 'model': raw_model.state_dict(),
                 'optimizer': optimizer.state_dict()
@@ -189,7 +193,7 @@ def train(
 
             epoch_score = float('-inf')
             for callback in callbacks:
-                if type(criterion) is FullSupportBarDistribution:
+                if isinstance(criterion, FullSupportBarDistribution):
                     result = callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, raw_model, dist=criterion, diag=diag_str)
                 else:
                     result = callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, raw_model, diag=diag_str)

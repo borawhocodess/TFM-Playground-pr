@@ -35,7 +35,8 @@ class ThinkingRows(nn.Module):
 class NanoTabPFNModel(nn.Module):
     def __init__(self, embedding_size: int, num_attention_heads: int, mlp_hidden_size: int,
                  num_layers: int, num_outputs: int, residual_decay: float = 1.0,
-                 num_thinking_rows: int = 0):
+                 num_thinking_rows: int = 0, use_qassmax: bool = False,
+                 use_quantile_loss: bool = False):
         super().__init__()
         self.embedding_size = embedding_size
         self.num_attention_heads = num_attention_heads
@@ -44,13 +45,15 @@ class NanoTabPFNModel(nn.Module):
         self.num_outputs = num_outputs
         self.residual_decay = residual_decay
         self.num_thinking_rows = num_thinking_rows
+        self.use_qassmax = use_qassmax
+        self.use_quantile_loss = use_quantile_loss
 
         self.feature_encoder = FeatureEncoder(embedding_size)
         self.target_encoder = TargetEncoder(embedding_size)
         self.thinking_rows = ThinkingRows(num_thinking_rows, embedding_size)
         self.transformer_encoder = TransformerEncoderStack(
             num_layers, embedding_size, num_attention_heads, mlp_hidden_size,
-            residual_decay=residual_decay,
+            residual_decay=residual_decay, use_qassmax=use_qassmax,
         )
         self.decoder = Decoder(embedding_size, mlp_hidden_size, num_outputs)
 
@@ -112,11 +115,12 @@ class TargetEncoder(nn.Module):
 
 class TransformerEncoderStack(nn.Module):
     def __init__(self, num_layers: int, embedding_size: int, num_attention_heads: int,
-                 mlp_hidden_size: int, residual_decay: float = 1.0):
+                 mlp_hidden_size: int, residual_decay: float = 1.0, use_qassmax: bool = False):
         super().__init__()
         self.residual_decay = residual_decay
         self.transformer_blocks = nn.ModuleList([
-            TransformerEncoderLayer(embedding_size, num_attention_heads, mlp_hidden_size)
+            TransformerEncoderLayer(embedding_size, num_attention_heads, mlp_hidden_size,
+                                    use_qassmax=use_qassmax)
             for _ in range(num_layers)
         ])
 
@@ -130,11 +134,13 @@ class TransformerEncoderStack(nn.Module):
 
 class TransformerEncoderLayer(nn.Module):
     def __init__(self, embedding_size: int, nhead: int, mlp_hidden_size: int,
-                 layer_norm_eps: float = 1e-5, device=None, dtype=None):
+                 layer_norm_eps: float = 1e-5, device=None, dtype=None,
+                 use_qassmax: bool = False):
         super().__init__()
         assert embedding_size % nhead == 0, "embedding_size must be divisible by nhead"
         self.num_heads = nhead
         self.head_dim = embedding_size // nhead
+        self.use_qassmax = use_qassmax
 
         factory_kwargs = {'device': device, 'dtype': dtype}
         # fused QKV projection — one matrix instead of three; enables batched Muon update
@@ -147,6 +153,28 @@ class TransformerEncoderLayer(nn.Module):
         self.norm1 = LowerPrecisionRMSNorm(embedding_size, eps=layer_norm_eps, **factory_kwargs)
         self.norm2 = LowerPrecisionRMSNorm(embedding_size, eps=layer_norm_eps, **factory_kwargs)
         self.norm3 = LowerPrecisionRMSNorm(embedding_size, eps=layer_norm_eps, **factory_kwargs)
+
+        # QASSMax: query-aware scalable softmax (TabICLv2)
+        # q̃ = q · MLP_base(log n) · (1 + tanh(MLP_gate(q)))
+        if use_qassmax:
+            hd = self.head_dim
+            self.qassmax_base = nn.Sequential(
+                nn.Linear(1, 64), nn.GELU(), nn.Linear(64, nhead * hd)
+            )
+            self.qassmax_gate = nn.Sequential(
+                nn.Linear(hd, 64), nn.GELU(), nn.Linear(64, hd)
+            )
+            # zero-init final layer so gate starts at 0 → smooth training start
+            nn.init.zeros_(self.qassmax_gate[-1].weight)
+            nn.init.zeros_(self.qassmax_gate[-1].bias)
+
+    def _qassmax_scale(self, q: torch.Tensor, n_train: int) -> torch.Tensor:
+        """Apply QASSMax scaling to query tensor q: (bc, h, r, hd)."""
+        bc, h, r, hd = q.shape
+        log_n  = torch.log(torch.tensor(float(n_train), device=q.device)).view(1, 1)
+        base   = self.qassmax_base(log_n).view(1, h, 1, hd)    # (1, h, 1, hd)
+        gate   = torch.tanh(self.qassmax_gate(q))               # (bc, h, r, hd)
+        return q * base * (1.0 + gate)
 
     def forward(self, src: torch.Tensor, single_eval_position: int) -> torch.Tensor:
         b, r, c, e = src.shape
@@ -165,6 +193,10 @@ class TransformerEncoderLayer(nn.Module):
         x = src.transpose(1, 2).reshape(b * c, r, e)
         qkv = self.qkv_datapoints(x).reshape(b * c, r, 3, h, hd).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
+
+        # apply QASSMax scaling to queries (scales by log(n_train), query-aware gate)
+        if self.use_qassmax:
+            q = self._qassmax_scale(q, single_eval_position)
 
         q_left, q_right = q.split([single_eval_position, r - single_eval_position], dim=2)
         k_train = k[:, :, :single_eval_position, :]

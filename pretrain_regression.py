@@ -7,6 +7,7 @@ import torch
 from datetime import datetime
 from pfns.bar_distribution import FullSupportBarDistribution
 from sklearn.metrics import r2_score
+from tfmplayground.losses import QuantileLoss
 
 from tfmplayground.callbacks import ConsoleLoggerCallback
 from tfmplayground.evaluation import get_openml_predictions, TOY_TASKS_REGRESSION, TABARENA_TASKS
@@ -58,6 +59,8 @@ parser.add_argument("--muon_lr", type=float, default=0.02)
 parser.add_argument("--n_buckets", type=int, default=100)
 parser.add_argument("--no_cosine_decay", action="store_true", help="Disable cosine LR decay")
 parser.add_argument("--patience", type=int, default=100, help="Early stopping patience in epochs (0=disabled)")
+parser.add_argument("--quantile_loss", action="store_true", help="Use 999-quantile pinball loss instead of bucket CE")
+parser.add_argument("--qassmax", action="store_true", help="Enable QASSMax attention (query-aware log-n scaling)")
 parser.add_argument("--experiments-dir", type=str, default='workdir/experiments/regression')
 parser.add_argument("--name", type=str, default='test')
 
@@ -95,15 +98,18 @@ if use_live:
             min_rows=_min_rows,
             device=device,
         )
-        print("Computing bucket edges from custom prior sample...")
-        bucket_edges = make_bucket_edges_from_custom_prior(
-            n_buckets=args.n_buckets,
-            batch_size=args.batchsize,
-            num_features=args.max_features,
-            num_rows=args.max_rows,
-            device=device,
-            n_batches=50,
-        )
+        if not args.quantile_loss:
+            print("Computing bucket edges from custom prior sample...")
+            bucket_edges = make_bucket_edges_from_custom_prior(
+                n_buckets=args.n_buckets,
+                batch_size=args.batchsize,
+                num_features=args.max_features,
+                num_rows=args.max_rows,
+                device=device,
+                n_batches=50,
+            )
+        else:
+            bucket_edges = None
     else:
         prior = LiveRegressionPriorDataLoader(
             num_steps=args.steps,
@@ -114,16 +120,19 @@ if use_live:
             min_rows=_min_rows,
             device=device,
         )
-        print("Computing bucket edges from live prior sample...")
-        bucket_edges = make_bucket_edges_from_live_prior(
-            prior=prior._prior,
-            n_buckets=args.n_buckets,
-            batch_size=args.batchsize,
-            num_features=args.max_features,
-            num_rows=args.max_rows,
-            device=device,
-            n_batches=50,
-        )
+        if not args.quantile_loss:
+            print("Computing bucket edges from live prior sample...")
+            bucket_edges = make_bucket_edges_from_live_prior(
+                prior=prior._prior,
+                n_buckets=args.n_buckets,
+                batch_size=args.batchsize,
+                num_features=args.max_features,
+                num_rows=args.max_rows,
+                device=device,
+                n_batches=50,
+            )
+        else:
+            bucket_edges = None
 else:
     prior = PriorDumpDataLoader(
         filename=args.priordump,
@@ -138,23 +147,29 @@ else:
         device=device,
     )
 
+num_outputs = QuantileLoss.N_QUANTILES if args.quantile_loss else args.n_buckets
+
 model = NanoTabPFNModel(
     num_attention_heads=args.heads,
     embedding_size=args.embeddingsize,
     mlp_hidden_size=args.hiddensize,
     num_layers=args.layers,
-    num_outputs=args.n_buckets,
+    num_outputs=num_outputs,
     residual_decay=args.residual_decay,
     num_thinking_rows=args.thinking_rows,
+    use_qassmax=args.qassmax,
+    use_quantile_loss=args.quantile_loss,
 )
 
 if ckpt:
     model.load_state_dict(ckpt['model'])
 
-# bake bucket borders into the model so the checkpoint is self-contained
-model.borders = bucket_edges
-
-dist = FullSupportBarDistribution(bucket_edges)
+if args.quantile_loss:
+    # no bucket edges needed — skip baking borders
+    dist = QuantileLoss().to(device)
+else:
+    model.borders = bucket_edges
+    dist = FullSupportBarDistribution(bucket_edges)
 
 
 class EvaluationLoggerCallback(ConsoleLoggerCallback):

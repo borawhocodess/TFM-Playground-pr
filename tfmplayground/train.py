@@ -12,6 +12,8 @@ from tfmplayground.model import NanoTabPFNModel
 from tfmplayground.muon import SingleDeviceMuonWithAuxAdam
 from tfmplayground.utils import get_default_device
 
+GRAD_CLIP = 0.3
+
 torch.set_float32_matmul_precision('high')
 
 
@@ -56,6 +58,8 @@ def train(
     warmup_steps: int = 1000,
     optimizer_type: str = 'schedulefree',
     muon_lr: float = 0.02,
+    cosine_decay: bool = True,
+    patience: int = 100,
 ):
     if multi_gpu:
         model = nn.DataParallel(model)
@@ -72,6 +76,10 @@ def train(
     if ckpt:
         optimizer.load_state_dict(ckpt['optimizer'])
 
+    scheduler = None
+    if cosine_decay and optimizer_type != 'schedulefree':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=lr * 0.01)
+
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
 
@@ -83,6 +91,8 @@ def train(
     assert prior.num_steps % accumulate_gradients == 0, 'num_steps must be divisible by accumulate_gradients'
 
     init_param_norm = sum(p.data.norm().item() ** 2 for p in model.parameters()) ** 0.5
+    best_score = float('-inf')
+    epochs_without_improvement = 0
 
     try:
         for epoch in range(ckpt['epoch'] + 1 if ckpt else 1, epochs + 1):
@@ -127,7 +137,7 @@ def train(
                 total_loss += loss.cpu().detach().item() * accumulate_gradients
 
                 if (i + 1) % accumulate_gradients == 0:
-                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.).item()
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP).item()
                     total_grad_norm += grad_norm
                     grads_finite = all(
                         p.grad is None or torch.isfinite(p.grad).all()
@@ -156,6 +166,9 @@ def train(
             if hasattr(optimizer, 'eval'):
                 optimizer.eval()
 
+            if scheduler is not None:
+                scheduler.step()
+
             raw_model = model.module if multi_gpu else model
             training_state = {
                 'epoch': epoch,
@@ -174,11 +187,24 @@ def train(
             task_name = 'classifier' if classification_task else 'regressor'
             torch.save(training_state, os.path.join(experiment_dir, f'{experiment_id}-{task_name}-checkpoint.pth'))
 
+            epoch_score = float('-inf')
             for callback in callbacks:
                 if type(criterion) is FullSupportBarDistribution:
-                    callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, raw_model, dist=criterion, diag=diag_str)
+                    result = callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, raw_model, dist=criterion, diag=diag_str)
                 else:
-                    callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, raw_model, diag=diag_str)
+                    result = callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, raw_model, diag=diag_str)
+                if isinstance(result, (int, float)) and result > epoch_score:
+                    epoch_score = result
+
+            if epoch_score > best_score:
+                best_score = epoch_score
+                epochs_without_improvement = 0
+                torch.save(training_state, os.path.join(experiment_dir, f'{experiment_id}-{task_name}-best.pth'))
+            else:
+                epochs_without_improvement += 1
+                if patience > 0 and epochs_without_improvement >= patience:
+                    print(f"Early stopping at epoch {epoch} (no improvement for {patience} epochs, best score {best_score:.4f})")
+                    break
     except KeyboardInterrupt:
         pass
     finally:

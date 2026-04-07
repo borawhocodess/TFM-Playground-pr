@@ -9,7 +9,7 @@ from pfns.bar_distribution import FullSupportBarDistribution
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OrdinalEncoder, FunctionTransformer
+from sklearn.preprocessing import OrdinalEncoder, FunctionTransformer, PowerTransformer
 
 from tfmplayground.model import NanoTabPFNModel, NanoTabPFNModelV1
 from tfmplayground.utils import get_default_device
@@ -219,18 +219,39 @@ class NanoTabPFNRegressor():
         self.feature_preprocessor = get_feature_preprocessor(X_train)
         self.X_train = self.feature_preprocessor.fit_transform(X_train)
         self.y_train = y_train
+
+        # Yeo-Johnson transform on target
+        self.y_transformer = PowerTransformer(method='yeo-johnson', standardize=True)
+        self.y_train_n = self.y_transformer.fit_transform(y_train.reshape(-1, 1)).ravel()
+
+        # keep z-score stats for the no-transform ensemble member
         self.y_train_mean = np.mean(self.y_train)
         self.y_train_std = np.std(self.y_train, ddof=1) + 1e-8
-        self.y_train_n = (self.y_train - self.y_train_mean) / self.y_train_std
+        self.y_train_z = (self.y_train - self.y_train_mean) / self.y_train_std
 
-    def predict(self, X_test: np.ndarray) -> np.ndarray:
+    def _forward(self, X_test: np.ndarray, y_context: np.ndarray) -> np.ndarray:
         X = np.concatenate((self.X_train, self.feature_preprocessor.transform(X_test)))
-        y = self.y_train_n
         device_type = torch.device(self.device).type if isinstance(self.device, str) else self.device.type
         with torch.no_grad(), torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16):
             X_tensor = torch.tensor(X, dtype=torch.float32, device=self.device).unsqueeze(0)
-            y_tensor = torch.tensor(y, dtype=torch.float32, device=self.device).unsqueeze(0)
+            y_tensor = torch.tensor(y_context, dtype=torch.float32, device=self.device).unsqueeze(0)
             logits = self.model((X_tensor, y_tensor), single_eval_pos=len(self.X_train), num_mem_chunks=self.num_mem_chunks).squeeze(0)
-            preds_n = self.dist.mean(logits.float())
-            preds = preds_n * self.y_train_std + self.y_train_mean
-        return preds.cpu().float().numpy()
+            return self.dist.mean(logits.float()).cpu().float().numpy()
+
+    def predict(self, X_test: np.ndarray) -> np.ndarray:
+        # member 1: Yeo-Johnson transformed target
+        preds_yj_n = self._forward(X_test, self.y_train_n)
+        # clip to trained range to prevent inverse_transform overflow on untrained models
+        yj_min, yj_max = self.y_train_n.min(), self.y_train_n.max()
+        preds_yj_n = np.clip(preds_yj_n, yj_min - 3 * abs(yj_min), yj_max + 3 * abs(yj_max))
+        preds_yj = self.y_transformer.inverse_transform(preds_yj_n.reshape(-1, 1)).ravel()
+
+        # member 2: plain z-score (original behaviour)
+        preds_z_n = self._forward(X_test, self.y_train_z)
+        preds_z = preds_z_n * self.y_train_std + self.y_train_mean
+
+        # average ensemble; replace any residual NaN with z-score member
+        ensemble = (preds_yj + preds_z) / 2.0
+        nan_mask = ~np.isfinite(ensemble)
+        ensemble[nan_mask] = preds_z[nan_mask]
+        return ensemble

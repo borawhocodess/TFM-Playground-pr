@@ -56,6 +56,8 @@ parser.add_argument("--warmup_steps", type=int, default=1000)
 parser.add_argument("--optimizer", type=str, default="schedulefree", choices=["schedulefree", "muon"])
 parser.add_argument("--muon_lr", type=float, default=0.02)
 parser.add_argument("--n_buckets", type=int, default=100)
+parser.add_argument("--no_cosine_decay", action="store_true", help="Disable cosine LR decay")
+parser.add_argument("--patience", type=int, default=100, help="Early stopping patience in epochs (0=disabled)")
 parser.add_argument("--experiments-dir", type=str, default='workdir/experiments/regression')
 parser.add_argument("--name", type=str, default='test')
 
@@ -180,6 +182,7 @@ class EvaluationLoggerCallback(ConsoleLoggerCallback):
         print(f'epoch {epoch:5d} | time {epoch_time:5.2f}s | loss {loss:5.2f} | {diag} | '
               f'avg r2 {avg_score:.3f} | {per_dataset}',
               flush=True)
+        return avg_score
 
 
 callbacks = [EvaluationLoggerCallback(TABARENA_TASKS)]
@@ -200,4 +203,6 @@ trained_model, loss = train(
     warmup_steps=args.warmup_steps,
     optimizer_type=args.optimizer,
     muon_lr=args.muon_lr,
+    cosine_decay=not args.no_cosine_decay,
+    patience=args.patience,
 )

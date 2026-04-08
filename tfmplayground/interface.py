@@ -80,8 +80,8 @@ def init_model_from_state_dict_file(file_path):
 
     # fall back to sibling *-buckets.pth if borders not baked into checkpoint
     if borders is None:
-        buckets_path = file_path.replace('-checkpoint.pth', '-buckets.pth')
-        if os.path.isfile(buckets_path):
+        buckets_path = file_path.replace('-checkpoint.pth', '-buckets.pth').replace('-best.pth', '-buckets.pth')
+        if buckets_path != file_path and os.path.isfile(buckets_path):
             borders = torch.load(buckets_path, map_location='cpu', weights_only=False)
 
     if borders is not None:

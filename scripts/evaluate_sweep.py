@@ -133,7 +133,7 @@ def auto_discover(experiments_dir: str) -> list[tuple[str, str]]:
     return result
 
 
-def print_table(rows: list[tuple[str, dict[str, tuple]]], all_datasets: list[str]):
+def print_table(rows: list[tuple[str, dict[str, tuple]]], all_datasets: list[str], precision: int = 3):
     """Print a results table sorted by mean R2, showing only mean R2 and mean RMSE."""
     scored = []
     for name, scores in rows:
@@ -147,18 +147,19 @@ def print_table(rows: list[tuple[str, dict[str, tuple]]], all_datasets: list[str
     rest = sorted([x for x in scored if x[0] not in pin_order], key=lambda x: x[1], reverse=True)
     scored = pinned + rest
 
+    w = precision + 4
     name_w = max(len(r[0]) for r in scored) if scored else 20
-    sep = "-" * (name_w + 24)
-    header = f"{'Model':<{name_w}}  {'Mean R2':>10}  {'Mean RMSE':>10}"
-
+    sep = "-" * (name_w + 2 * w + 6)
+    header = f"{'Model':<{name_w}}  {'Mean R2':>{w}}  {'Mean RMSE':>{w}}"
+    fmt = f".{precision}f"
 
     for name, mean_r2, mean_rmse in pinned:
-        print(f"{name:<{name_w}}  {mean_r2:>10.2f}  {mean_rmse:>10.2f}")
+        print(f"{name:<{name_w}}  {mean_r2:>{w}{fmt}}  {mean_rmse:>{w}{fmt}}")
     print(sep)
     print(header)
     print(sep)
     for name, mean_r2, mean_rmse in rest:
-        print(f"{name:<{name_w}}  {mean_r2:>10.2f}  {mean_rmse:>10.2f}")
+        print(f"{name:<{name_w}}  {mean_r2:>{w}{fmt}}  {mean_rmse:>{w}{fmt}}")
 
 
 def main():
@@ -181,6 +182,8 @@ def main():
                         help="Device override (default: auto)")
     parser.add_argument("--cache_dir", type=str, default=OPENML_CACHE,
                         help="OpenML cache directory")
+    parser.add_argument("--precision", type=int, default=3,
+                        help="Decimal places in the results table")
     args = parser.parse_args()
 
     OPENML_CACHE = args.cache_dir
@@ -253,7 +256,7 @@ def main():
         print("No results to show.", file=sys.stderr)
         sys.exit(1)
 
-    print_table(all_results, all_datasets)
+    print_table(all_results, all_datasets, precision=args.precision)
 
 
 if __name__ == "__main__":

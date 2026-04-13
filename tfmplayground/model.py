@@ -21,8 +21,11 @@ class NanoTabPFNModel(nn.Module):
         self.num_outputs = num_outputs
         self.feature_encoder = FeatureEncoder(embedding_size)
         self.target_encoder = TargetEncoder(embedding_size)
+        self.transformer_blocks = nn.ModuleList()
         for _ in range(num_layers):
-            self.transformer_blocks.append(TransformerEncoderLayer(embedding_size, num_attention_heads, mlp_hidden_size))
+            self.transformer_blocks.append(
+                TransformerEncoderLayer(embedding_size, num_attention_heads, mlp_hidden_size)
+            )
         self.decoder = Decoder(embedding_size, mlp_hidden_size, num_outputs)
 
     # TODO: consider getting rid of this and just provide a single interface

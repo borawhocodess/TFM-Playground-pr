@@ -7,10 +7,18 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.modules.transformer import LayerNorm, Linear, MultiheadAttention
 
+from tfmplayground.models.base import TabularFoundationModel
 
-class NanoTabPFNModel(nn.Module):
+
+class NanoTabPFNModel(TabularFoundationModel):
     def __init__(
-        self, embedding_size: int, num_attention_heads: int, mlp_hidden_size: int, num_layers: int, num_outputs: int
+        self,
+        embedding_size: int,
+        num_attention_heads: int,
+        mlp_hidden_size: int,
+        num_layers: int,
+        num_outputs: int,
+        num_mem_chunks: int = 1,
     ):
         """Initializes the feature/target encoder, transformer blocks and decoder"""
         super().__init__()
@@ -19,6 +27,7 @@ class NanoTabPFNModel(nn.Module):
         self.mlp_hidden_size = mlp_hidden_size
         self.num_layers = num_layers
         self.num_outputs = num_outputs
+        self.num_mem_chunks = num_mem_chunks
         self.feature_encoder = FeatureEncoder(embedding_size)
         self.target_encoder = TargetEncoder(embedding_size)
         self.transformer_blocks = nn.ModuleList()
@@ -28,46 +37,27 @@ class NanoTabPFNModel(nn.Module):
             )
         self.decoder = Decoder(embedding_size, mlp_hidden_size, num_outputs)
 
-    # TODO: consider getting rid of this and just provide a single interface
-    def forward(self, *args, **kwargs) -> torch.Tensor:
+    def forward(
+        self,
+        X_train: torch.Tensor,
+        y_train: torch.Tensor,
+        X_test: torch.Tensor,
+    ) -> torch.Tensor:
         """
-        Provides two interfaces:
-        model(X_train, y_train, X_test)
-            Args:
-                X_train: (torch.Tensor) a tensor of shape (batch_size, num_train_datapoints, num_features)
-                y_train: (torch.Tensor) a tensor of shape (batch_size, num_train_datapoints, 1)
-                X_test: (torch.Tensor) a tensor of shape (batch_size, num_test_datapoints, num_features)
+        Predicts the outputs for X_test given the labelled (X_train, y_train) context.
 
-        model((x,y), train_test_split_index)
-            Args:
-                x: (torch.Tensor) a tensor of shape (batch_size, num_datapoints, num_features)
-                y: (torch.Tensor) a tensor of shape (batch_size, num_train_datapoints, 1)
-
-
-        The former is similar to the sklearn interface.
-        In the latter x is the concatenation of X_train and X_test, y is y_train and
-        train_test_split_index is the length of X_train.
-        Our model internally works with the latter representation, so we convert the former into
-        the latter and forward it to _forward.
+        Args:
+            X_train: (torch.Tensor) a tensor of shape (batch_size, num_train_datapoints, num_features)
+            y_train: (torch.Tensor) a tensor of shape (batch_size, num_train_datapoints, 1)
+            X_test: (torch.Tensor) a tensor of shape (batch_size, num_test_datapoints, num_features)
 
         Returns:
             (torch.Tensor) a tensor of shape (batch_size, num_test_datapoints, num_classes),
                            which represent the predicted logits
         """
-        if len(args) == 3:
-            # case model(train_x, train_y, test_x)
-            x = args[0]
-            if args[2] is not None:
-                x = torch.cat((x, args[2]), dim=1)
-            return self._forward((x, args[1]), train_test_split_index=args[0].shape[1], **kwargs)
-        elif len(args) == 1 and isinstance(args[0], tuple):
-            # case model((x,y), train_test_split_index=None)
-            return self._forward(*args, **kwargs)
-
-    def _forward(
-        self, src: tuple[torch.Tensor, torch.Tensor], train_test_split_index: int, num_mem_chunks: int = 1
-    ) -> torch.Tensor:
-        x_src, y_src = src
+        train_test_split_index = y_train.shape[1]
+        x_src = torch.cat([X_train, X_test], dim=1)
+        y_src = y_train
         # we expect the labels to look like (batches, num_train_datapoints, 1),
         # so we add the last dimension if it is missing
         if len(y_src.shape) < len(x_src.shape):
@@ -84,7 +74,7 @@ class NanoTabPFNModel(nn.Module):
         src = torch.cat([x_src, y_src], 2)
         # repeatedly applies the transformer block on (B,R,C,E)
         for block in self.transformer_blocks:
-            src = block(src, train_test_split_index=train_test_split_index)
+            src = block(src, train_test_split_index=train_test_split_index, num_mem_chunks=self.num_mem_chunks)
         # selects the target embeddings (B,num_targets,1,E)
         output = src[:, train_test_split_index:, -1, :]
         # runs the embeddings through the decoder to get

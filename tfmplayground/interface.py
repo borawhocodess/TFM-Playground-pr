@@ -112,8 +112,8 @@ class NanoTabPFNClassifier:
         if isinstance(model, str):
             model = init_model_from_state_dict_file(model)
         self.model = model.to(device)
+        self.model.num_mem_chunks = num_mem_chunks
         self.device = device
-        self.num_mem_chunks = num_mem_chunks
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
         """stores X_train and y_train for later use, also computes the highest class number occuring in num_classes"""
@@ -132,14 +132,13 @@ class NanoTabPFNClassifier:
         creates (x,y), runs it through our PyTorch Model, cuts off the classes that didn't appear in the training data
         and applies softmax to get the probabilities
         """
-        x = np.concatenate((self.X_train, self.feature_preprocessor.transform(X_test)))
-        y = self.y_train
+        X_test = self.feature_preprocessor.transform(X_test)
         with torch.no_grad():
-            x = torch.from_numpy(x).unsqueeze(0).to(torch.float).to(self.device)  # introduce batch size 1
-            y = torch.from_numpy(y).unsqueeze(0).to(torch.float).to(self.device)
-            out = self.model(
-                (x, y), train_test_split_index=len(self.X_train), num_mem_chunks=self.num_mem_chunks
-            ).squeeze(0)  # remove batch size 1
+            # introduce batch size 1
+            X_train = torch.from_numpy(self.X_train).unsqueeze(0).to(torch.float).to(self.device)
+            X_test = torch.from_numpy(X_test).unsqueeze(0).to(torch.float).to(self.device)
+            y_train = torch.from_numpy(self.y_train).unsqueeze(0).to(torch.float).to(self.device)
+            out = self.model(X_train, y_train, X_test).squeeze(0)  # remove batch size 1
             # our pretrained classifier supports up to num_outputs classes, if the dataset has less we cut off the rest
             out = out[:, : self.num_classes]
             # apply softmax to get a probability distribution
@@ -185,9 +184,9 @@ class NanoTabPFNRegressor:
             dist = FullSupportBarDistribution(bucket_edges).float()
 
         self.model = model.to(device)
+        self.model.num_mem_chunks = num_mem_chunks
         self.device = device
         self.dist = dist
-        self.num_mem_chunks = num_mem_chunks
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
         """
@@ -208,16 +207,14 @@ class NanoTabPFNRegressor:
         Predicts the means of the output distributions for X_test.
         Renormalizes the predictions back to the original target scale.
         """
-        X = np.concatenate((self.X_train, self.feature_preprocessor.transform(X_test)))
-        y = self.y_train_n
+        X_test = self.feature_preprocessor.transform(X_test)
 
         with torch.no_grad():
-            X_tensor = torch.tensor(X, dtype=torch.float32, device=self.device).unsqueeze(0)
-            y_tensor = torch.tensor(y, dtype=torch.float32, device=self.device).unsqueeze(0)
+            X_train = torch.from_numpy(self.X_train).unsqueeze(0).to(torch.float).to(self.device)
+            X_test = torch.from_numpy(X_test).unsqueeze(0).to(torch.float).to(self.device)
+            y_train = torch.from_numpy(self.y_train_n).unsqueeze(0).to(torch.float).to(self.device)
 
-            logits = self.model(
-                (X_tensor, y_tensor), train_test_split_index=len(self.X_train), num_mem_chunks=self.num_mem_chunks
-            ).squeeze(0)
+            logits = self.model(X_train, y_train, X_test).squeeze(0)
             preds_n = self.dist.mean(logits)
             preds = preds_n * self.y_train_std + self.y_train_mean
 

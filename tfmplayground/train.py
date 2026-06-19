@@ -8,12 +8,12 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from tfmplayground.callbacks import Callback
-from tfmplayground.models.nanotabpfn import NanoTabPFNModel
+from tfmplayground.models import TabularFoundationModel
 from tfmplayground.utils import get_default_device
 
 
 def train(
-    model: NanoTabPFNModel,
+    model: TabularFoundationModel,
     prior: DataLoader,
     criterion: nn.CrossEntropyLoss | FullSupportBarDistribution,
     epochs: int,
@@ -29,7 +29,7 @@ def train(
     Trains our model on the given prior using the given criterion.
 
     Args:
-        model: (NanoTabPFNModel) our PyTorch model
+        model: (TabularFoundationModel) our PyTorch model
         prior: (DataLoader) torch-compatible dataloader
         criterion: (nn.CrossEntropyLoss | FullSupportBarDistribution) our loss criterion
         epochs: (int) the number of epochs we train for,
@@ -69,18 +69,18 @@ def train(
             total_loss = 0.0
             for i, full_data in enumerate(prior):
                 train_test_split_index = full_data["train_test_split_index"]
-                data = (full_data["x"].to(device), full_data["y"][:, :train_test_split_index].to(device))
-                if torch.isnan(data[0]).any() or torch.isnan(data[1]).any():
+                x = full_data["x"].to(device)
+                y_train = full_data["y"][:, :train_test_split_index].to(device)
+                if torch.isnan(x).any() or torch.isnan(y_train).any():
                     continue
                 targets = full_data["target_y"].to(device)
 
                 if regression_task:
-                    y_mean = data[1].mean(dim=1, keepdim=True)
-                    y_std = data[1].std(dim=1, keepdim=True) + 1e-8
-                    y_norm = (data[1] - y_mean) / y_std
-                    data = (data[0], y_norm)
+                    y_mean = y_train.mean(dim=1, keepdim=True)
+                    y_std = y_train.std(dim=1, keepdim=True) + 1e-8
+                    y_train = (y_train - y_mean) / y_std
 
-                output = model(data, train_test_split_index=train_test_split_index)
+                output = model(x[:, :train_test_split_index], y_train, x[:, train_test_split_index:])
                 targets = targets[:, train_test_split_index:]
                 if regression_task:
                     targets = (targets - y_mean) / y_std

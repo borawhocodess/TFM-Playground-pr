@@ -6,7 +6,7 @@ from torch import nn
 from tfmplayground.callbacks import ConsoleLoggerCallback, WandbLoggerCallback
 from tfmplayground.evaluation import TABARENA_TASKS, TOY_TASKS_CLASSIFICATION, get_openml_predictions
 from tfmplayground.external_priors import PriorDumpDataLoader
-from tfmplayground.interface import NanoTabPFNClassifier
+from tfmplayground.interface import TabularClassifier
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
 from tfmplayground.train import train
 from tfmplayground.utils import get_default_device, set_randomness_seed
@@ -65,7 +65,7 @@ class ToyEvaluationLoggerCallback(ConsoleLoggerCallback):
         self.tasks = tasks
 
     def on_epoch_end(self, epoch: int, epoch_time: float, loss: float, model, **kwargs):
-        classifier = NanoTabPFNClassifier(model, device)
+        classifier = TabularClassifier(model, device)
         predictions = get_openml_predictions(model=classifier, tasks=self.tasks)
         scores = []
         for _dataset_name, (y_true, _y_pred, y_proba) in predictions.items():
@@ -82,7 +82,7 @@ class ProductionEvaluationLoggerCallback(WandbLoggerCallback):
         super().__init__(project, name, config, log_dir)
 
     def on_epoch_end(self, epoch: int, epoch_time: float, loss: float, model, **kwargs):
-        classifier = NanoTabPFNClassifier(model, device)
+        classifier = TabularClassifier(model, device)
         predictions = get_openml_predictions(model=classifier, classification=True, tasks=TABARENA_TASKS)
         scores = []
         log_metrics = {"epoch": epoch, "epoch_time": epoch_time, "mean_loss": loss}

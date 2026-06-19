@@ -8,11 +8,11 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, OrdinalEncoder
 
-from tfmplayground.models.nanotabpfn import NanoTabPFNModel
+from tfmplayground.models import TabularFoundationModel
 from tfmplayground.utils import get_default_device
 
 
-# doing these as lambdas would cause NanoTabPFNClassifier to not be pickle-able,
+# doing these as lambdas would cause TabularClassifier to not be pickle-able,
 # which would cause issues if we want to run it inside the tabarena codebase
 def to_pandas(x):
     return pd.DataFrame(x) if not isinstance(x, pd.DataFrame) else x
@@ -69,12 +69,12 @@ def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> ColumnTransformer:
     return preprocessor
 
 
-class NanoTabPFNClassifier:
+class TabularClassifier:
     """scikit-learn like interface"""
 
     def __init__(
         self,
-        model: NanoTabPFNModel,
+        model: TabularFoundationModel,
         device: None | str | torch.device = None,
         num_mem_chunks: int = 8,
     ):
@@ -115,12 +115,12 @@ class NanoTabPFNClassifier:
             return probabilities.to("cpu").numpy()
 
 
-class NanoTabPFNRegressor:
+class TabularRegressor:
     """scikit-learn like interface"""
 
     def __init__(
         self,
-        model: NanoTabPFNModel,
+        model: TabularFoundationModel,
         dist: FullSupportBarDistribution,
         device: str | torch.device | None = None,
         num_mem_chunks: int = 8,

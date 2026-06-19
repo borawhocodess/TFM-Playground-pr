@@ -1,5 +1,7 @@
 # TFM-Playground
 
+> **README must be updated — all checkpointing removed.**
+
 The purpose of this repository is to provide a fully open source playground for tabular foundation models.
 It contains a much smaller and simpler implementation of the TabPFNv2 architecture (nanoTabPFN) as well as a training loop, multiple interfaces to load prior data and an evaluation pipeline. We are planning to rapidly extend the repository with more features, prior interfaces and architectures.
 It is supposed to be a good starting point for students and researchers that are interested in learning about how Tabular foundation models work under the hood.

@@ -1,6 +1,5 @@
 import argparse
 
-import torch
 from sklearn.metrics import roc_auc_score
 from torch import nn
 
@@ -29,7 +28,6 @@ parser.add_argument(
     "--steps", type=int, default=100, help="number of steps that constitute one epoch (important for lr scheduler)"
 )
 parser.add_argument("--epochs", type=int, default=10000, help="number of epochs to train for")
-parser.add_argument("--loadcheckpoint", type=str, default=None, help="checkpoint from which to continue training")
 parser.add_argument("--multigpu", action="store_true", help="enable multi-GPU training using data parallelism")
 parser.add_argument(
     "--runname",
@@ -43,16 +41,12 @@ args = parser.parse_args()
 set_randomness_seed(2402)
 
 device = get_default_device()
-ckpt = None
-if args.loadcheckpoint:
-    ckpt = torch.load(args.loadcheckpoint)
 
 prior = PriorDumpDataLoader(
     filename=args.priordump,
     num_steps=args.steps,
     batch_size=args.batchsize,
     device=device,
-    starting_index=args.steps * (ckpt["epoch"] if ckpt else 0),
 )
 
 criterion = nn.CrossEntropyLoss()
@@ -64,9 +58,6 @@ model = NanoTabPFNModel(
     num_layers=args.layers,
     num_outputs=prior.max_num_classes,
 )
-
-if ckpt:
-    model.load_state_dict(ckpt["model"])
 
 
 class ToyEvaluationLoggerCallback(ConsoleLoggerCallback):
@@ -120,7 +111,5 @@ trained_model, loss = train(
     lr=args.lr,
     device=device,
     callbacks=callbacks,
-    ckpt=ckpt,
     multi_gpu=args.multigpu,
-    run_name=args.runname,
 )

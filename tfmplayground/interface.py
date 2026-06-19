@@ -1,8 +1,5 @@
-import os
-
 import numpy as np
 import pandas as pd
-import requests
 import torch
 import torch.nn.functional as F
 from pfns.bar_distribution import FullSupportBarDistribution
@@ -11,27 +8,11 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, OrdinalEncoder
 
-from tfmplayground.models.nanotabpfn import NanoTabPFNModel
+from tfmplayground.models import TabularFoundationModel
 from tfmplayground.utils import get_default_device
 
 
-def init_model_from_state_dict_file(file_path):
-    """
-    reads model architecture from state dict, instantiates the architecture and loads the weights
-    """
-    state_dict = torch.load(file_path, map_location=torch.device("cpu"))
-    model = NanoTabPFNModel(
-        num_attention_heads=state_dict["architecture"]["num_attention_heads"],
-        embedding_size=state_dict["architecture"]["embedding_size"],
-        mlp_hidden_size=state_dict["architecture"]["mlp_hidden_size"],
-        num_layers=state_dict["architecture"]["num_layers"],
-        num_outputs=state_dict["architecture"]["num_outputs"],
-    )
-    model.load_state_dict(state_dict["model"])
-    return model
-
-
-# doing these as lambdas would cause NanoTabPFNClassifier to not be pickle-able,
+# doing these as lambdas would cause TabularClassifier to not be pickle-able,
 # which would cause issues if we want to run it inside the tabarena codebase
 def to_pandas(x):
     return pd.DataFrame(x) if not isinstance(x, pd.DataFrame) else x
@@ -88,29 +69,17 @@ def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> ColumnTransformer:
     return preprocessor
 
 
-class NanoTabPFNClassifier:
+class TabularClassifier:
     """scikit-learn like interface"""
 
     def __init__(
         self,
-        model: NanoTabPFNModel | str | None = None,
+        model: TabularFoundationModel,
         device: None | str | torch.device = None,
         num_mem_chunks: int = 8,
     ):
         if device is None:
             device = get_default_device()
-        if model is None:
-            model = "checkpoints/nanotabpfn.pth"
-            if not os.path.isfile(model):
-                os.makedirs("checkpoints", exist_ok=True)
-                print("No cached model found, downloading model checkpoint.")
-                response = requests.get(
-                    "https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/nanotabpfn_classifier.pth"
-                )
-                with open(model, "wb") as f:
-                    f.write(response.content)
-        if isinstance(model, str):
-            model = init_model_from_state_dict_file(model)
         self.model = model.to(device)
         self.model.num_mem_chunks = num_mem_chunks
         self.device = device
@@ -146,43 +115,18 @@ class NanoTabPFNClassifier:
             return probabilities.to("cpu").numpy()
 
 
-class NanoTabPFNRegressor:
+class TabularRegressor:
     """scikit-learn like interface"""
 
     def __init__(
         self,
-        model: NanoTabPFNModel | str | None = None,
-        dist: FullSupportBarDistribution | str | None = None,
+        model: TabularFoundationModel,
+        dist: FullSupportBarDistribution,
         device: str | torch.device | None = None,
         num_mem_chunks: int = 8,
     ):
         if device is None:
             device = get_default_device()
-        if model is None:
-            os.makedirs("checkpoints", exist_ok=True)
-            model = "checkpoints/nanotabpfn_regressor.pth"
-            dist = "checkpoints/nanotabpfn_regressor_buckets.pth"
-            if not os.path.isfile(model):
-                print("No cached model found, downloading model checkpoint.")
-                response = requests.get(
-                    "https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/nanotabpfn_regressor.pth"
-                )
-                with open(model, "wb") as f:
-                    f.write(response.content)
-            if not os.path.isfile(dist):
-                print("No cached bucket edges found, downloading bucket edges.")
-                response = requests.get(
-                    "https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/nanotabpfn_regressor_buckets.pth"
-                )
-                with open(dist, "wb") as f:
-                    f.write(response.content)
-        if isinstance(model, str):
-            model = init_model_from_state_dict_file(model)
-
-        if isinstance(dist, str):
-            bucket_edges = torch.load(dist, map_location=device)
-            dist = FullSupportBarDistribution(bucket_edges).float()
-
         self.model = model.to(device)
         self.model.num_mem_chunks = num_mem_chunks
         self.device = device

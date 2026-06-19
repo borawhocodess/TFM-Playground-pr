@@ -1,4 +1,3 @@
-import os
 import time
 
 import schedulefree
@@ -21,9 +20,7 @@ def train(
     lr: float = 1e-4,
     device: torch.device = None,
     callbacks: list[Callback] = None,
-    ckpt: dict[str, torch.Tensor] = None,
     multi_gpu: bool = False,
-    run_name: str = "tfmplayground",
 ):
     """
     Trains our model on the given prior using the given criterion.
@@ -38,14 +35,10 @@ def train(
         device: (torch.device) the device we are using
         callbacks: A list of callback instances to execute at the end of each epoch. These can be used for
             logging, validation, or other custom actions.
-        ckpt (Dict[str, torch.Tensor], optional): A checkpoint dictionary containing the model and optimizer states,
-            as well as the last completed epoch. If provided, training resumes from this checkpoint.
 
     Returns:
         (torch.Tensor) a tensor of shape (num_rows, batch_size, num_features, embedding_size)
     """
-    work_dir = "workdir/" + run_name
-    os.makedirs(work_dir, exist_ok=True)
     if multi_gpu:
         model = nn.DataParallel(model)
     if callbacks is None:
@@ -54,15 +47,13 @@ def train(
         device = get_default_device()
     model.to(device)
     optimizer = schedulefree.AdamWScheduleFree(model.parameters(), lr=lr, weight_decay=0.0)
-    if ckpt:
-        optimizer.load_state_dict(ckpt["optimizer"])
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
 
     assert prior.num_steps % accumulate_gradients == 0, "num_steps must be divisible by accumulate_gradients"
 
     try:
-        for epoch in range(ckpt["epoch"] + 1 if ckpt else 1, epochs + 1):
+        for epoch in range(1, epochs + 1):
             epoch_start_time = time.time()
             model.train()  # Turn on the train mode
             optimizer.train()
@@ -102,20 +93,6 @@ def train(
             mean_loss = total_loss / len(prior)
             model.eval()
             optimizer.eval()
-
-            training_state = {
-                "epoch": epoch,
-                "architecture": {
-                    "num_layers": int((model.module if multi_gpu else model).num_layers),
-                    "embedding_size": int((model.module if multi_gpu else model).embedding_size),
-                    "num_attention_heads": int((model.module if multi_gpu else model).num_attention_heads),
-                    "mlp_hidden_size": int((model.module if multi_gpu else model).mlp_hidden_size),
-                    "num_outputs": int((model.module if multi_gpu else model).num_outputs),
-                },
-                "model": (model.module if multi_gpu else model).state_dict(),
-                "optimizer": optimizer.state_dict(),
-            }
-            torch.save(training_state, work_dir + "/latest_checkpoint.pth")
 
             for callback in callbacks:
                 if type(criterion) is FullSupportBarDistribution:

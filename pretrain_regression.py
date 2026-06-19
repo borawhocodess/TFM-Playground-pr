@@ -1,13 +1,12 @@
 from types import SimpleNamespace
 
-import torch
 from pfns.bar_distribution import FullSupportBarDistribution
 from sklearn.metrics import r2_score
 
 from tfmplayground.callbacks import ConsoleLoggerCallback
 from tfmplayground.evaluation import TOY_TASKS_REGRESSION, get_openml_predictions
 from tfmplayground.external_priors import PriorDumpDataLoader
-from tfmplayground.interface import NanoTabPFNRegressor
+from tfmplayground.interface import TabularRegressor
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
 from tfmplayground.train import train
 from tfmplayground.utils import get_default_device, load_config, make_global_bucket_edges, set_randomness_seed
@@ -17,16 +16,12 @@ args = SimpleNamespace(**load_config("nanotabpfn_regressor"))
 set_randomness_seed(2402)
 
 device = get_default_device()
-ckpt = None
-if args.loadcheckpoint:
-    ckpt = torch.load(args.loadcheckpoint)
 
 prior = PriorDumpDataLoader(
     filename=args.priordump,
     num_steps=args.steps,
     batch_size=args.batchsize,
     device=device,
-    starting_index=args.steps * (ckpt["epoch"] if ckpt else 0),
 )
 
 model = NanoTabPFNModel(
@@ -43,14 +38,6 @@ bucket_edges = make_global_bucket_edges(
     device=device,
 )
 
-torch.save(
-    bucket_edges,
-    args.savebuckets,
-)
-
-if ckpt:
-    model.load_state_dict(ckpt["model"])
-
 dist = FullSupportBarDistribution(bucket_edges)
 
 
@@ -59,7 +46,7 @@ class EvaluationLoggerCallback(ConsoleLoggerCallback):
         self.tasks = tasks
 
     def on_epoch_end(self, epoch: int, epoch_time: float, loss: float, model, **kwargs):
-        regressor = NanoTabPFNRegressor(model, dist, device)
+        regressor = TabularRegressor(model, dist, device)
         predictions = get_openml_predictions(model=regressor, tasks=self.tasks)
         scores = []
         for _dataset_name, (y_true, y_pred, _) in predictions.items():
@@ -82,7 +69,4 @@ trained_model, loss = train(
     lr=args.lr,
     device=device,
     callbacks=callbacks,
-    ckpt=ckpt,
 )
-
-torch.save(trained_model.to("cpu").state_dict(), args.saveweights)

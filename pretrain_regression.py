@@ -1,4 +1,4 @@
-import argparse
+from types import SimpleNamespace
 
 from pfns.bar_distribution import FullSupportBarDistribution
 from sklearn.metrics import r2_score
@@ -9,29 +9,9 @@ from tfmplayground.external_priors import PriorDumpDataLoader
 from tfmplayground.interface import TabularRegressor
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
 from tfmplayground.train import train
-from tfmplayground.utils import get_default_device, make_global_bucket_edges, set_randomness_seed
+from tfmplayground.utils import get_default_device, load_config, make_global_bucket_edges, set_randomness_seed
 
-parser = argparse.ArgumentParser()
-
-parser.add_argument("--priordump", type=str, default="50x3_1280k_regression.h5", help="path to the prior dump")
-parser.add_argument("--heads", type=int, default=6, help="number of attention heads")
-parser.add_argument("--embeddingsize", type=int, default=192, help="the size of the embeddings used for the cells")
-parser.add_argument("--hiddensize", type=int, default=768, help="size of the hidden layer of the mlps")
-parser.add_argument("--layers", type=int, default=6, help="number of transformer layers")
-parser.add_argument(
-    "--batchsize", type=int, default=1, help="batch size used during training (before gradient accumulation)"
-)
-parser.add_argument(
-    "--accumulate", type=int, default=1, help="number of gradients to accumulate before updating the weights"
-)
-parser.add_argument("--lr", type=float, default=1e-4, help="learning rate")
-parser.add_argument(
-    "--steps", type=int, default=100, help="number of steps that constitute one epoch (important for lr scheduler)"
-)
-parser.add_argument("--epochs", type=int, default=10000, help="number of epochs to train for")
-parser.add_argument("--n_buckets", type=int, default=100, help="number of buckets for the data loader")
-
-args = parser.parse_args()
+args = SimpleNamespace(**load_config("nanotabpfn_regressor"))
 
 set_randomness_seed(2402)
 

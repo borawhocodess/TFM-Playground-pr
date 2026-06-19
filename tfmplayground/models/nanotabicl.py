@@ -1,7 +1,9 @@
 import typing, math, torch, torch.nn as nn
 
+from tfmplayground.models.base import TabularFoundationModel
 
-class NanoTabICLv2(nn.Module):
+
+class NanoTabICLv2(TabularFoundationModel):
     def __init__(self, max_classes: int, out_dim: int, embed_dim: int = 128,
                  col_num_blocks: int = 3, row_num_blocks: int = 3, icl_num_blocks: int = 12,
                  col_nhead: int = 8, row_nhead: int = 8, icl_nhead: int = 8,
@@ -28,7 +30,9 @@ class NanoTabICLv2(nn.Module):
         self.out_ln = nn.LayerNorm(icl_dim)
         self.out_mlp = get_mlp(icl_dim, icl_dim * 2, out_dim)
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def forward(self, X_train: torch.Tensor, y_train: torch.Tensor, X_test: torch.Tensor) -> torch.Tensor:
+        x = torch.cat([X_train, X_test], dim=1)
+        y = y_train
         n_batch, n_rows, n_cols = x.shape
         n_batch, n_train = y.shape
 
@@ -163,11 +167,3 @@ class QASSMax(nn.Module):  # query-aware scalable softmax for better context len
         batch_size, num_heads, seq_len, head_dim = q.shape
         logn = q.new_tensor(math.log(max(1, n))).view(1, 1)
         return self.base_mlp(logn).view(1, num_heads, 1, head_dim) * (1 + torch.tanh(self.query_mlp(q))) * q
-
-
-if __name__ == '__main__':  # check that forward pass works
-    n_batch, n_train, n_test, n_cols = 2, 16, 8, 3
-    model = NanoTabICLv2(max_classes=10, out_dim=10)
-    x = torch.randn(n_batch, n_train + n_test, n_cols)
-    y = torch.randint(10, size=(n_batch, n_train))
-    print(f'{model(x,y).shape=}')

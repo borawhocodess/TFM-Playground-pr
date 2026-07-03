@@ -71,4 +71,5 @@ indent-style = "space"
 [dependency-groups]
 dev = [
     "ruff>=0.15.10",
+    "pytest>=8",
 ]

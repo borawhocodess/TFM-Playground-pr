@@ -1,4 +1,3 @@
-
 import numpy as np
 import openml
 import torch
@@ -175,5 +174,3 @@ def get_openml_predictions(
         probabilities = np.concatenate(probabilities, axis=0) if len(probabilities) > 0 else None
         dataset_predictions[str(dataset.name)] = (targets, y_pred, probabilities)
     return dataset_predictions
-
-

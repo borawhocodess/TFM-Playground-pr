@@ -8,13 +8,13 @@ from torch.utils.data import DataLoader
 
 from tfmplayground.callbacks import Callback
 from tfmplayground.models import TabularFoundationModel
-from tfmplayground.utils import get_default_device
+from tfmplayground.utils import QuantileLoss, get_default_device
 
 
 def train(
     model: TabularFoundationModel,
     prior: DataLoader,
-    criterion: nn.CrossEntropyLoss | FullSupportBarDistribution,
+    criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss,
     epochs: int,
     accumulate_gradients: int = 1,
     lr: float = 1e-4,

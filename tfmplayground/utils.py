@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import yaml
 from pfns.bar_distribution import get_bucket_limits
+from torch import nn
 
 CONFIGS_DIR = Path(__file__).parent / "configs"
 
@@ -54,3 +55,18 @@ def make_global_bucket_edges(filename, n_buckets=100, device=None, max_y=5_000_0
     ys_tensor = torch.tensor(ys_concat, dtype=torch.float32, device=device)
     global_bucket_edges = get_bucket_limits(n_buckets, ys=ys_tensor).to(device)
     return global_bucket_edges
+
+
+class QuantileLoss(nn.Module):
+    """Pinball loss summed over a fixed grid of quantile levels."""
+
+    def __init__(self, n_quantiles: int):
+        super().__init__()
+        alphas = torch.arange(1, n_quantiles + 1, dtype=torch.float) / (n_quantiles + 1)
+        self.register_buffer("alphas", alphas)
+
+    def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        alphas = self.alphas.to(logits.device)
+        error = target.unsqueeze(-1) - logits
+        losses = torch.maximum(alphas * error, (alphas - 1.0) * error)
+        return losses.sum(dim=-1)

@@ -121,7 +121,7 @@ class TabularRegressor:
     def __init__(
         self,
         model: TabularFoundationModel,
-        dist: FullSupportBarDistribution,
+        dist: FullSupportBarDistribution | None = None,
         device: str | torch.device | None = None,
         num_mem_chunks: int = 8,
     ):
@@ -148,8 +148,6 @@ class TabularRegressor:
     def predict(self, X_test: np.ndarray) -> np.ndarray:
         """
         Performs in-context learning using X_train and y_train.
-        Predicts the means of the output distributions for X_test.
-        Renormalizes the predictions back to the original target scale.
         """
         X_test = self.feature_preprocessor.transform(X_test)
 
@@ -159,7 +157,7 @@ class TabularRegressor:
             y_train = torch.from_numpy(self.y_train_n).unsqueeze(0).to(torch.float).to(self.device)
 
             logits = self.model(X_train, y_train, X_test).squeeze(0)
-            preds_n = self.dist.mean(logits)
+            preds_n = self.dist.mean(logits) if self.dist is not None else logits.mean(dim=-1)
             preds = preds_n * self.y_train_std + self.y_train_mean
 
         return preds.cpu().numpy()

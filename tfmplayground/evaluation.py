@@ -3,8 +3,10 @@ import openml
 import torch
 from openml.config import set_root_cache_directory
 from openml.tasks import TaskType
+from sklearn.metrics import r2_score, roc_auc_score
 from sklearn.preprocessing import LabelEncoder
 
+from tfmplayground.callbacks import Callback
 from tfmplayground.interface import TabularClassifier, TabularRegressor
 
 TOY_TASKS_REGRESSION = [
@@ -72,6 +74,38 @@ TABARENA_TASKS = [
     363711,
     363712,
 ]
+
+
+class OpenMLEvaluationCallback(Callback):
+    """
+    Evaluates the model on OpenML tasks at the end of each epoch and logs the score to the console,
+    roc auc for classification and r2 for regression.
+    """
+
+    def __init__(self, tasks: list[int] | str, classification: bool = True, device: str | torch.device | None = None):
+        self.tasks = tasks
+        self.classification = classification
+        self.device = device
+
+    def on_epoch_end(self, epoch: int, epoch_time: float, loss: float, model, **kwargs):
+        if self.classification:
+            wrapped = TabularClassifier(model, self.device)
+            predictions = get_openml_predictions(model=wrapped, tasks=self.tasks)
+            scores = [roc_auc_score(y_true, y_proba, multi_class="ovr") for y_true, _, y_proba in predictions.values()]
+            metric = "avg roc auc"
+        else:
+            wrapped = TabularRegressor(model, kwargs.get("dist"), self.device)
+            predictions = get_openml_predictions(model=wrapped, tasks=self.tasks)
+            scores = [r2_score(y_true, y_pred) for y_true, y_pred, _ in predictions.values()]
+            metric = "avg r2 score"
+        avg_score = sum(scores) / len(scores)
+        print(
+            f"epoch {epoch:5d} | time {epoch_time:5.2f}s | mean loss {loss:5.2f} | {metric} {avg_score:.3f}",
+            flush=True,
+        )
+
+    def close(self):
+        pass
 
 
 @torch.no_grad()

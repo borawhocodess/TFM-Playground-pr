@@ -68,6 +68,9 @@ ignore = [
 quote-style = "double"
 indent-style = "space"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [dependency-groups]
 dev = [
     "ruff>=0.15.10",

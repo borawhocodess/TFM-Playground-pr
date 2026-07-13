@@ -78,6 +78,20 @@ def pretrainTFM(
         model = default_model(problem)
     if criterion is None:
         criterion = infer_criterion(model, prior, device, problem)
+    num_outputs = infer_num_outputs(model)
+    max_num_classes = getattr(prior, "max_num_classes", None)
+    if isinstance(criterion, nn.CrossEntropyLoss) and max_num_classes and int(max_num_classes) > num_outputs:
+        raise ValueError(
+            f"the prior holds up to {int(max_num_classes)} classes but the model has {num_outputs} outputs"
+        )
+    if isinstance(criterion, FullSupportBarDistribution) and criterion.borders.numel() - 1 != num_outputs:
+        raise ValueError(
+            f"the criterion has {criterion.borders.numel() - 1} buckets but the model has {num_outputs} outputs"
+        )
+    if isinstance(criterion, QuantileLoss) and criterion.alphas.numel() != num_outputs:
+        raise ValueError(
+            f"the criterion has {criterion.alphas.numel()} quantiles but the model has {num_outputs} outputs"
+        )
     if eval is None:
         eval = [ConsoleLoggerCallback()]
     elif isinstance(eval, Callback):
@@ -137,7 +151,7 @@ def infer_num_outputs(model: TabularFoundationModel) -> int:
     """Runs a tiny forward pass to find out how many outputs the model produces per test row."""
     parameter = next(model.parameters())
     X_train = torch.randn(1, 8, 4, device=parameter.device, dtype=parameter.dtype)
-    y_train = torch.randn(1, 8, device=parameter.device, dtype=parameter.dtype)
+    y_train = torch.randint(0, 2, (1, 8), device=parameter.device).to(parameter.dtype)
     X_test = torch.randn(1, 4, 4, device=parameter.device, dtype=parameter.dtype)
     was_training = model.training
     model.eval()

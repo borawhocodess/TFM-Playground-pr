@@ -160,6 +160,31 @@ def test_criterion_contradicting_problem_raises(tmp_path):
         pretrainTFM(model=model, prior=in_memory, problem="classification", criterion=QuantileLoss(3), device="cpu")
 
 
+def test_model_head_contradicting_criterion_raises(tmp_path):
+    """An explicit regression criterion must have exactly as many buckets or quantiles as the model has outputs."""
+    make_regression_dump(tmp_path / "reg.h5")
+    prior = PriorDumpDataLoader(filename=str(tmp_path / "reg.h5"), num_steps=2, batch_size=4, device="cpu")
+
+    with pytest.raises(ValueError, match="100 buckets but the model has 8"):
+        pretrainTFM(
+            model=make_tiny_model(num_outputs=8),
+            prior=prior,
+            criterion=FullSupportBarDistribution(torch.linspace(-3, 3, 101)),
+            device="cpu",
+        )
+    with pytest.raises(ValueError, match="99 quantiles but the model has 8"):
+        pretrainTFM(model=make_tiny_model(num_outputs=8), prior=prior, criterion=QuantileLoss(99), device="cpu")
+
+
+def test_model_head_contradicting_prior_classes_raises(tmp_path):
+    """A prior with more classes than the model has outputs would crash mid-training, refuse upfront instead."""
+    make_classification_dump(tmp_path / "cls15.h5", max_num_classes=15)
+    prior = PriorDumpDataLoader(filename=str(tmp_path / "cls15.h5"), num_steps=2, batch_size=4, device="cpu")
+
+    with pytest.raises(ValueError, match="15 classes but the model has 3"):
+        pretrainTFM(model=make_tiny_model(num_outputs=3), prior=prior, device="cpu")
+
+
 def test_fetch_dump_prefers_cache(tmp_path):
     """A dump already sitting in the cache is returned without touching the network."""
     (tmp_path / "dump.h5").write_bytes(b"cached")

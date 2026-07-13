@@ -3,12 +3,14 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import requests
 import torch
 import yaml
 from pfns.bar_distribution import get_bucket_limits
 from torch import nn
 
 CONFIGS_DIR = Path(__file__).parent / "configs"
+CACHE_DIR = Path.home() / ".cache" / "tfmplayground"
 
 
 def load_config(name):
@@ -33,6 +35,24 @@ def get_default_device():
     if torch.cuda.is_available():
         device = "cuda"
     return device
+
+
+def fetch_dump(url, cache_dir=CACHE_DIR):
+    """Downloads a prior dump to the cache directory if it is not already there and returns its path."""
+    cache_dir = Path(cache_dir)
+    path = cache_dir / url.split("/")[-1]
+    if path.exists():
+        return path
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    print(f"downloading {url} to {path}", flush=True)
+    response = requests.get(url, stream=True, timeout=60)
+    response.raise_for_status()
+    partial = path.with_suffix(".part")
+    with open(partial, "wb") as f:
+        for chunk in response.iter_content(chunk_size=1 << 20):
+            f.write(chunk)
+    partial.rename(path)
+    return path
 
 
 def make_global_bucket_edges(filename, n_buckets=100, device=None, max_y=5_000_000):

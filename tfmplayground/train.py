@@ -7,13 +7,17 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from tfmplayground.callbacks import Callback, ConsoleLoggerCallback
-from tfmplayground.models import TabularFoundationModel
-from tfmplayground.utils import QuantileLoss, get_default_device, make_global_bucket_edges
+from tfmplayground.models import NanoTabPFNModel, TabularFoundationModel
+from tfmplayground.utils import QuantileLoss, fetch_dump, get_default_device, make_global_bucket_edges
+
+DEFAULT_DUMP_URL = (
+    "https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_3_100k_classification.h5"
+)
 
 
 def pretrainTFM(
-    model: TabularFoundationModel,
-    prior: DataLoader,
+    model: TabularFoundationModel | None = None,
+    prior: DataLoader | None = None,
     eval: Callback | list[Callback] | None = None,
     regime=None,
     criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss | None = None,
@@ -27,8 +31,10 @@ def pretrainTFM(
     Pretrains a tabular foundation model on a prior and hands back the trained model, nothing else to wire up.
 
     Args:
-        model: (TabularFoundationModel) any model implementing the base forward contract
-        prior: (DataLoader) torch-compatible dataloader providing the pretraining data
+        model: (TabularFoundationModel) any model implementing the base forward contract,
+            defaults to a nanotabpfn sized off the prior
+        prior: (DataLoader) torch-compatible dataloader providing the pretraining data,
+            defaults to the 100k classification dump, downloaded on first use
         eval: a callback or list of callbacks run at the end of each epoch,
             defaults to logging the loss to the console
         regime: reserved for training regimes, not implemented yet
@@ -46,6 +52,10 @@ def pretrainTFM(
         raise NotImplementedError("training regimes are not a thing yet")
     if device is None:
         device = get_default_device()
+    if prior is None:
+        prior = default_prior(device)
+    if model is None:
+        model = default_model(prior)
     if criterion is None:
         criterion = infer_criterion(model, prior, device)
     if eval is None:
@@ -64,6 +74,26 @@ def pretrainTFM(
         multi_gpu=multi_gpu,
     )
     return trained_model
+
+
+def default_prior(device: torch.device) -> DataLoader:
+    """Fetches the 100k classification dump and wraps it in a dataloader."""
+    from tfmplayground.external_priors import PriorDumpDataLoader
+
+    return PriorDumpDataLoader(str(fetch_dump(DEFAULT_DUMP_URL)), num_steps=25, batch_size=50, device=device)
+
+
+def default_model(prior: DataLoader) -> TabularFoundationModel:
+    """Builds a nanotabpfn with as many outputs as the prior has classes, 100 buckets for regression priors."""
+    max_num_classes = getattr(prior, "max_num_classes", None)
+    num_outputs = int(max_num_classes) if max_num_classes else 100
+    return NanoTabPFNModel(
+        num_attention_heads=6,
+        embedding_size=192,
+        mlp_hidden_size=768,
+        num_layers=6,
+        num_outputs=num_outputs,
+    )
 
 
 def infer_criterion(

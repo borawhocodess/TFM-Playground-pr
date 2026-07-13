@@ -1,6 +1,9 @@
 import pytest
 import torch
+from torch import nn
 
+from tfmplayground import pretrainTFM
+from tfmplayground.external_priors import PriorDataLoader
 from tfmplayground.models import (
     ModdedNanoTabPFNModel,
     NanoTabICLv2,
@@ -80,5 +83,42 @@ def test_forward_follows_base_contract(make_model):
     with torch.no_grad():
         out = model(X_train, y_train, X_test)
 
+    assert out.shape == (2, 5, 3)
+    assert torch.isfinite(out).all()
+
+
+def get_three_class_batch(batch_size, num_datapoints, num_features):
+    x = torch.randn(batch_size, num_datapoints, num_features)
+    y = (x[:, :, 0] > 0).float() + (x[:, :, 1] > 0).float()
+    return dict(x=x, y=y, target_y=y, train_test_split_index=num_datapoints // 2)
+
+
+@pytest.mark.parametrize(
+    "make_model",
+    [make_nanotabpfn, make_nanotabicl, make_nanotabdpt, make_moddednanotabpfn, make_nanotabfm],
+    ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm"],
+)
+def test_pretrainTFM_swaps_any_model(make_model):
+    """Every model drops into pretrainTFM as-is and comes back trained."""
+    torch.manual_seed(0)
+    prior = PriorDataLoader(
+        get_batch_function=get_three_class_batch,
+        num_steps=2,
+        batch_size=2,
+        num_datapoints_max=16,
+        num_features=4,
+        device="cpu",
+    )
+    trained = pretrainTFM(
+        model=make_model(),
+        prior=prior,
+        eval=[],
+        criterion=nn.CrossEntropyLoss(),
+        epochs=1,
+        device="cpu",
+    )
+
+    with torch.no_grad():
+        out = trained(torch.randn(2, 12, 4), torch.randint(0, 3, (2, 12)).float(), torch.randn(2, 5, 4))
     assert out.shape == (2, 5, 3)
     assert torch.isfinite(out).all()

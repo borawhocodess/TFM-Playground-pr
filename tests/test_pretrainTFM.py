@@ -150,8 +150,9 @@ def test_pretrainTFM_regression_dump_infers_criterion(tmp_path):
     assert torch.equal(criterion.borders, make_global_bucket_edges(prior, n_buckets=8, device="cpu"))
 
     trained = pretrainTFM(model=model, prior=prior, eval=[], epochs=2, device="cpu")
+    assert trained.dist.borders.shape == (9,)
 
-    regressor = TabularRegressor(trained, dist=criterion, device="cpu")
+    regressor = TabularRegressor(trained, device="cpu")
     rng = np.random.default_rng(0)
     regressor.fit(rng.standard_normal((20, 3)), rng.standard_normal(20))
     predictions = regressor.predict(rng.standard_normal((5, 3)))

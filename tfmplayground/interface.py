@@ -130,7 +130,7 @@ class TabularRegressor:
         self.model = model.to(device)
         self.model.num_mem_chunks = num_mem_chunks
         self.device = device
-        self.dist = dist
+        self.dist = dist if dist is not None else getattr(model, "dist", None)
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
         """

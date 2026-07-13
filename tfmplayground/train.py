@@ -50,7 +50,8 @@ def pretrainTFM(
         multi_gpu: (bool) whether to wrap the model in DataParallel
 
     Returns:
-        (TabularFoundationModel) the trained model
+        (TabularFoundationModel) the trained model, carrying the fitted bar distribution
+            as model.dist when trained for regression
     """
     if regime is not None:
         raise NotImplementedError("training regimes are not a thing yet")
@@ -84,6 +85,8 @@ def pretrainTFM(
         callbacks=eval,
         multi_gpu=multi_gpu,
     )
+    if isinstance(criterion, FullSupportBarDistribution):
+        trained_model.dist = criterion
     return trained_model
 
 

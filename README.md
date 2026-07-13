@@ -25,7 +25,7 @@ The same goes for regression:
 model = pretrainTFM(problem="regression")
 ```
 
-which instead downloads [1.28M pre-generated regression datasets](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_1280k_regression.h5) (~1GB) and fits a bar distribution over 100 buckets as the criterion.
+which instead downloads [1.28M pre-generated regression datasets](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_1280k_regression.h5) (~1GB) and fits a bar distribution over 100 buckets as the criterion. The fitted distribution rides on the trained model as `model.dist`, so `TabularRegressor(model)` serves it directly.
 
 The trained model plugs straight into our scikit-learn like interface:
 

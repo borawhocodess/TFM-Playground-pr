@@ -96,6 +96,14 @@ def pretrainTFM(
         eval = [ConsoleLoggerCallback()]
     elif isinstance(eval, Callback):
         eval = [eval]
+    for callback in eval:
+        side = getattr(callback, "classification", None)
+        if side is not None and problem is not None:
+            side = "classification" if side else "regression"
+            if side != problem:
+                raise ValueError(
+                    f"eval callback {type(callback).__name__} is set up for {side} but the problem is {problem!r}"
+                )
     trained_model, _ = train(
         model=model,
         prior=prior,

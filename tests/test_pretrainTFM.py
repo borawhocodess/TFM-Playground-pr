@@ -6,6 +6,7 @@ from pfns.bar_distribution import FullSupportBarDistribution
 from torch import nn
 
 from tfmplayground import TabularClassifier, TabularRegressor, pretrainTFM
+from tfmplayground.evaluation import TOY_TASKS_REGRESSION, OpenMLEvaluationCallback
 from tfmplayground.external_priors import PriorDataLoader, PriorDumpDataLoader
 from tfmplayground.models import NanoTabPFNModel
 from tfmplayground.train import infer_criterion, infer_num_outputs
@@ -158,6 +159,19 @@ def test_criterion_contradicting_problem_raises(tmp_path):
     )
     with pytest.raises(ValueError, match="is for regression"):
         pretrainTFM(model=model, prior=in_memory, problem="classification", criterion=QuantileLoss(3), device="cpu")
+
+
+def test_eval_direction_contradicting_problem_raises(tmp_path):
+    """A directional eval callback pointed the wrong way fails before training instead of after an epoch."""
+    make_classification_dump(tmp_path / "cls.h5")
+    prior = PriorDumpDataLoader(filename=str(tmp_path / "cls.h5"), num_steps=2, batch_size=4, device="cpu")
+
+    with pytest.raises(ValueError, match="set up for regression"):
+        pretrainTFM(
+            prior=prior,
+            eval=OpenMLEvaluationCallback(TOY_TASKS_REGRESSION, classification=False, device="cpu"),
+            device="cpu",
+        )
 
 
 def test_model_head_contradicting_criterion_raises(tmp_path):

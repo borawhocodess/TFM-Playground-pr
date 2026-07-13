@@ -5,21 +5,10 @@ import h5py
 import numpy as np
 import requests
 import torch
-import yaml
 from pfns.bar_distribution import get_bucket_limits
 from torch import nn
 
-CONFIGS_DIR = Path(__file__).parent / "configs"
 CACHE_DIR = Path.home() / ".cache" / "tfmplayground"
-
-
-def load_config(name):
-    """Load a YAML config from tfmplayground/configs."""
-    path = Path(name)
-    if not path.exists():
-        path = CONFIGS_DIR / f"{Path(name).stem}.yaml"
-    with open(path) as f:
-        return yaml.safe_load(f)
 
 
 def set_randomness_seed(seed):

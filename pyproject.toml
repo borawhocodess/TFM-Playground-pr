@@ -31,7 +31,6 @@ dependencies = [
     "interpret",
     "numba",
     "mlflow",
-    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]
@@ -43,9 +42,6 @@ Issues = "https://github.com/automl/TFM-Playground/issues"
 
 [tool.setuptools]
 packages = { find = { include = ["tfmplayground"] } }
-
-[tool.setuptools.package-data]
-tfmplayground = ["configs/*.yaml"]
 
 [tool.ruff]
 line-length = 120

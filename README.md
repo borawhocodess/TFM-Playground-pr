@@ -59,17 +59,15 @@ from tfmplayground.evaluation import TOY_TASKS_CLASSIFICATION, OpenMLEvaluationC
 from tfmplayground.external_priors import PriorDumpDataLoader
 from tfmplayground.models import NanoTabPFNModel
 
-prior = PriorDumpDataLoader("50x3_3_100k_classification.h5", num_steps=25, batch_size=50)
-
 model = pretrainTFM(
     model=NanoTabPFNModel(
         num_attention_heads=6,
         embedding_size=192,
         mlp_hidden_size=768,
         num_layers=6,
-        num_outputs=prior.max_num_classes,
+        num_outputs=10,
     ),
-    prior=prior,
+    prior=PriorDumpDataLoader("50x3_3_100k_classification.h5", num_steps=25, batch_size=50),
     eval=OpenMLEvaluationCallback(TOY_TASKS_CLASSIFICATION),
     epochs=80,
 )

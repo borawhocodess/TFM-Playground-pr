@@ -82,8 +82,8 @@ def test_pretrainTFM_classification_returns_usable_model():
     np.testing.assert_allclose(probabilities.sum(axis=1), 1.0, rtol=1e-5)
 
 
-def test_pretrainTFM_defaults_model_from_prior(tmp_path):
-    """Only a prior given, the model defaults to a nanotabpfn sized off the prior's classes."""
+def test_pretrainTFM_default_model_head_is_fixed(tmp_path):
+    """Only a prior given, the default model keeps its 10 class head no matter what the dump says."""
     torch.manual_seed(0)
     dump = tmp_path / "tiny_classification.h5"
     make_classification_dump(dump)
@@ -91,7 +91,7 @@ def test_pretrainTFM_defaults_model_from_prior(tmp_path):
 
     trained = pretrainTFM(prior=prior, eval=[], epochs=1, device="cpu")
 
-    assert infer_num_outputs(trained) == 3
+    assert infer_num_outputs(trained) == 10
 
 
 def test_problem_flag_forces_classification():

@@ -34,7 +34,7 @@ def pretrainTFM(
 
     Args:
         model: (TabularFoundationModel) any model implementing the base forward contract,
-            defaults to a nanotabpfn sized off the prior
+            defaults to a nanotabpfn with a 10 class head (100 buckets for regression)
         prior: (DataLoader) torch-compatible dataloader providing the pretraining data,
             defaults to the 100k classification dump, downloaded on first use
         eval: a callback or list of callbacks run at the end of each epoch,
@@ -63,8 +63,10 @@ def pretrainTFM(
         device = get_default_device()
     if prior is None:
         prior = default_prior(device, problem or "classification")
+    if problem is None:
+        problem = getattr(prior, "problem_type", None)
     if model is None:
-        model = default_model(prior)
+        model = default_model(problem)
     if criterion is None:
         criterion = infer_criterion(model, prior, device, problem)
     if eval is None:
@@ -92,16 +94,14 @@ def default_prior(device: torch.device, problem: str) -> DataLoader:
     return PriorDumpDataLoader(str(fetch_dump(DUMP_URLS[problem])), num_steps=25, batch_size=50, device=device)
 
 
-def default_model(prior: DataLoader) -> TabularFoundationModel:
-    """Builds a nanotabpfn with as many outputs as the prior has classes, 100 buckets for regression priors."""
-    max_num_classes = getattr(prior, "max_num_classes", None)
-    num_outputs = int(max_num_classes) if max_num_classes else 100
+def default_model(problem: str | None) -> TabularFoundationModel:
+    """Builds a nanotabpfn with a fixed 10 class head for classification and 100 buckets otherwise."""
     return NanoTabPFNModel(
         num_attention_heads=6,
         embedding_size=192,
         mlp_hidden_size=768,
         num_layers=6,
-        num_outputs=num_outputs,
+        num_outputs=10 if problem == "classification" else 100,
     )
 
 

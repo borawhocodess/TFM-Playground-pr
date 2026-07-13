@@ -2,6 +2,7 @@ import h5py
 import numpy as np
 import pytest
 import torch
+from pfns.bar_distribution import FullSupportBarDistribution
 from torch import nn
 
 from tfmplayground import TabularClassifier, TabularRegressor, pretrainTFM
@@ -128,6 +129,35 @@ def test_problem_flag_contradicting_prior_raises(tmp_path):
 def test_problem_flag_rejects_unknown_values():
     with pytest.raises(ValueError, match="must be one of"):
         pretrainTFM(problem="clustering", device="cpu")
+
+
+def test_criterion_contradicting_problem_raises(tmp_path):
+    """A criterion declares a side, starting a run where it disagrees with the prior or flag refuses loudly."""
+    make_classification_dump(tmp_path / "cls.h5")
+    make_regression_dump(tmp_path / "reg.h5")
+    cls_prior = PriorDumpDataLoader(filename=str(tmp_path / "cls.h5"), num_steps=2, batch_size=4, device="cpu")
+    reg_prior = PriorDumpDataLoader(filename=str(tmp_path / "reg.h5"), num_steps=2, batch_size=4, device="cpu")
+    model = make_tiny_model(num_outputs=3)
+
+    with pytest.raises(ValueError, match="is for classification"):
+        pretrainTFM(model=model, prior=reg_prior, criterion=nn.CrossEntropyLoss(), device="cpu")
+    with pytest.raises(ValueError, match="is for regression"):
+        pretrainTFM(model=model, prior=cls_prior, criterion=QuantileLoss(3), device="cpu")
+    with pytest.raises(ValueError, match="is for regression"):
+        pretrainTFM(
+            model=model, prior=cls_prior, criterion=FullSupportBarDistribution(torch.linspace(-3, 3, 4)), device="cpu"
+        )
+
+    in_memory = PriorDataLoader(
+        get_batch_function=get_classification_batch,
+        num_steps=2,
+        batch_size=4,
+        num_datapoints_max=16,
+        num_features=3,
+        device="cpu",
+    )
+    with pytest.raises(ValueError, match="is for regression"):
+        pretrainTFM(model=model, prior=in_memory, problem="classification", criterion=QuantileLoss(3), device="cpu")
 
 
 def test_fetch_dump_prefers_cache(tmp_path):

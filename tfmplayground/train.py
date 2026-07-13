@@ -42,7 +42,8 @@ def pretrainTFM(
         regime: reserved for training regimes, not implemented yet
         problem: "classification" or "regression", steers the default prior and criterion,
             inferred from the prior if not given
-        criterion: our loss criterion, inferred from the prior and model if not given
+        criterion: our loss criterion, inferred from the prior and model if not given,
+            must sit on the same side as the problem
         epochs: (int) the number of epochs we train for
         accumulate_gradients: (int) the number of gradients to accumulate before updating the weights
         lr: (float) the learning rate
@@ -60,6 +61,13 @@ def pretrainTFM(
     prior_problem = getattr(prior, "problem_type", None)
     if problem is not None and prior_problem is not None and problem != prior_problem:
         raise ValueError(f"problem={problem!r} but the prior says {prior_problem!r}")
+    problem = problem or prior_problem
+    if criterion is not None and problem is not None:
+        criterion_problem = "classification" if isinstance(criterion, nn.CrossEntropyLoss) else "regression"
+        if problem != criterion_problem:
+            raise ValueError(
+                f"criterion {type(criterion).__name__} is for {criterion_problem} but the problem is {problem!r}"
+            )
     if device is None:
         device = get_default_device()
     if prior is None:

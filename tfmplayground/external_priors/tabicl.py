@@ -4,6 +4,8 @@ import torch
 from tabicl.prior import PriorDataset as TabICLPriorDataset
 from torch.utils.data import DataLoader
 
+from tfmplayground.utils import get_default_device
+
 
 class TabICLPriorDataLoader(DataLoader):
     """DataLoader sampling synthetic prior data on-the-fly from TabICL's PriorDataset.
@@ -17,7 +19,7 @@ class TabICLPriorDataLoader(DataLoader):
         max_features (int): Maximum number of features in x.
         max_num_classes (int): Maximum number of classes (for classification tasks).
         prior_type (str): Type of prior: 'mlp_scm', 'tree_scm', 'mix_scm' (default), or 'dummy'.
-        device (torch.device): Target device for tensors.
+        device (torch.device): Target device for tensors, defaults to the best available device.
     """
 
     def __init__(
@@ -29,7 +31,7 @@ class TabICLPriorDataLoader(DataLoader):
         min_features: int,
         max_features: int,
         max_num_classes: int,
-        device: torch.device,
+        device: torch.device = None,
         prior_type: str = "mix_scm",
     ):
         self.num_steps = num_steps
@@ -40,7 +42,7 @@ class TabICLPriorDataLoader(DataLoader):
         self.max_features = max_features
         self.max_num_classes = max_num_classes
         self.prior_type = prior_type
-        self.device = device
+        self.device = device if device is not None else get_default_device()
 
         self.pd = TabICLPriorDataset(
             batch_size=batch_size,

@@ -8,6 +8,8 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from tfmplayground.utils import get_default_device
+
 
 class PriorDataLoader(DataLoader):
     """Generic DataLoader for synthetic data generation using a get_batch function.
@@ -18,7 +20,7 @@ class PriorDataLoader(DataLoader):
         batch_size (int): Number of functions per batch.
         num_datapoints_max (int): Max sequence length per function.
         num_features (int): Number of input features.
-        device (torch.device): Device to move tensors to.
+        device (torch.device): Device to move tensors to, defaults to the best available device.
     """
 
     def __init__(
@@ -28,14 +30,14 @@ class PriorDataLoader(DataLoader):
         batch_size: int,
         num_datapoints_max: int,
         num_features: int,
-        device: torch.device,
+        device: torch.device = None,
     ):
         self.get_batch_function = get_batch_function
         self.num_steps = num_steps
         self.batch_size = batch_size
         self.num_datapoints_max = num_datapoints_max
         self.num_features = num_features
-        self.device = device
+        self.device = device if device is not None else get_default_device()
 
     def __iter__(self) -> Iterator[dict[str, torch.Tensor | int]]:
         return iter(
@@ -54,10 +56,10 @@ class PriorDumpDataLoader(DataLoader):
         filename (str): Path to the HDF5 file.
         num_steps (int): Number of batches per epoch.
         batch_size (int): Batch size.
-        device (torch.device): Device to load tensors onto.
+        device (torch.device): Device to load tensors onto, defaults to the best available device.
     """
 
-    def __init__(self, filename, num_steps, batch_size, device, starting_index=0):
+    def __init__(self, filename, num_steps, batch_size, device=None, starting_index=0):
         self.filename = filename
         self.num_steps = num_steps
         self.batch_size = batch_size
@@ -70,7 +72,7 @@ class PriorDumpDataLoader(DataLoader):
             self.problem_type = f["problem_type"][()].decode("utf-8")
             self.has_num_datapoints = "num_datapoints" in f
             self.stored_max_seq_len = f["X"].shape[1]
-        self.device = device
+        self.device = device if device is not None else get_default_device()
         self.pointer = starting_index
 
     def __iter__(self):

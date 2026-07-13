@@ -19,6 +19,14 @@ model = pretrainTFM()
 
 Everything is optional: with no arguments this downloads [100k pre-generated classification datasets](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_3_100k_classification.h5) with 50 datapoints and 3 features each on first use, builds a small nanoTabPFN sized to fit them, picks a loss criterion and pretrains on the best available device, logging the loss to the console. This should take a couple of minutes on a modern NVIDIA GPU (longer on a laptop).
 
+The same goes for regression:
+
+```python
+model = pretrainTFM(problem="regression")
+```
+
+which instead downloads [1.28M pre-generated regression datasets](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_1280k_regression.h5) (~1GB) and fits a bar distribution over 100 buckets as the criterion.
+
 The trained model plugs straight into our scikit-learn like interface:
 
 ```python

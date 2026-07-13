@@ -10,9 +10,10 @@ from tfmplayground.callbacks import Callback, ConsoleLoggerCallback
 from tfmplayground.models import NanoTabPFNModel, TabularFoundationModel
 from tfmplayground.utils import QuantileLoss, fetch_dump, get_default_device, make_global_bucket_edges
 
-DEFAULT_DUMP_URL = (
-    "https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_3_100k_classification.h5"
-)
+DUMP_URLS = {
+    "classification": "https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_3_100k_classification.h5",
+    "regression": "https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_1280k_regression.h5",
+}
 
 
 def pretrainTFM(
@@ -20,6 +21,7 @@ def pretrainTFM(
     prior: DataLoader | None = None,
     eval: Callback | list[Callback] | None = None,
     regime=None,
+    problem: str | None = None,
     criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss | None = None,
     epochs: int = 100,
     accumulate_gradients: int = 1,
@@ -38,6 +40,8 @@ def pretrainTFM(
         eval: a callback or list of callbacks run at the end of each epoch,
             defaults to logging the loss to the console
         regime: reserved for training regimes, not implemented yet
+        problem: "classification" or "regression", steers the default prior and criterion,
+            inferred from the prior if not given
         criterion: our loss criterion, inferred from the prior and model if not given
         epochs: (int) the number of epochs we train for
         accumulate_gradients: (int) the number of gradients to accumulate before updating the weights
@@ -50,14 +54,19 @@ def pretrainTFM(
     """
     if regime is not None:
         raise NotImplementedError("training regimes are not a thing yet")
+    if problem is not None and problem not in DUMP_URLS:
+        raise ValueError(f"problem must be one of {sorted(DUMP_URLS)}, got {problem!r}")
+    prior_problem = getattr(prior, "problem_type", None)
+    if problem is not None and prior_problem is not None and problem != prior_problem:
+        raise ValueError(f"problem={problem!r} but the prior says {prior_problem!r}")
     if device is None:
         device = get_default_device()
     if prior is None:
-        prior = default_prior(device)
+        prior = default_prior(device, problem or "classification")
     if model is None:
         model = default_model(prior)
     if criterion is None:
-        criterion = infer_criterion(model, prior, device)
+        criterion = infer_criterion(model, prior, device, problem)
     if eval is None:
         eval = [ConsoleLoggerCallback()]
     elif isinstance(eval, Callback):
@@ -76,11 +85,11 @@ def pretrainTFM(
     return trained_model
 
 
-def default_prior(device: torch.device) -> DataLoader:
-    """Fetches the 100k classification dump and wraps it in a dataloader."""
+def default_prior(device: torch.device, problem: str) -> DataLoader:
+    """Fetches the pre-generated dump for the given problem and wraps it in a dataloader."""
     from tfmplayground.external_priors import PriorDumpDataLoader
 
-    return PriorDumpDataLoader(str(fetch_dump(DEFAULT_DUMP_URL)), num_steps=25, batch_size=50, device=device)
+    return PriorDumpDataLoader(str(fetch_dump(DUMP_URLS[problem])), num_steps=25, batch_size=50, device=device)
 
 
 def default_model(prior: DataLoader) -> TabularFoundationModel:
@@ -97,15 +106,15 @@ def default_model(prior: DataLoader) -> TabularFoundationModel:
 
 
 def infer_criterion(
-    model: TabularFoundationModel, prior: DataLoader, device: torch.device
+    model: TabularFoundationModel, prior: DataLoader, device: torch.device, problem: str | None = None
 ) -> nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss:
     """
-    Picks a loss criterion based on what the prior provides: cross entropy for classification,
+    Picks a loss criterion based on the problem or what the prior provides: cross entropy for classification,
     a bar distribution fitted on the dump for regression dumps and a quantile loss otherwise.
     The number of model outputs is probed with a tiny forward pass.
     """
-    problem_type = getattr(prior, "problem_type", None)
-    if problem_type == "classification" or (problem_type is None and getattr(prior, "max_num_classes", None)):
+    problem = problem or getattr(prior, "problem_type", None)
+    if problem == "classification" or (problem is None and getattr(prior, "max_num_classes", None)):
         return nn.CrossEntropyLoss()
     num_outputs = infer_num_outputs(model)
     filename = getattr(prior, "filename", None)

@@ -1,5 +1,6 @@
 import h5py
 import numpy as np
+import pytest
 import torch
 from torch import nn
 
@@ -7,7 +8,7 @@ from tfmplayground import TabularClassifier, TabularRegressor, pretrainTFM
 from tfmplayground.external_priors import PriorDataLoader, PriorDumpDataLoader
 from tfmplayground.models import NanoTabPFNModel
 from tfmplayground.train import infer_criterion, infer_num_outputs
-from tfmplayground.utils import fetch_dump
+from tfmplayground.utils import QuantileLoss, fetch_dump
 
 
 def make_tiny_model(num_outputs):
@@ -91,6 +92,42 @@ def test_pretrainTFM_defaults_model_from_prior(tmp_path):
     trained = pretrainTFM(prior=prior, eval=[], epochs=1, device="cpu")
 
     assert infer_num_outputs(trained) == 3
+
+
+def test_problem_flag_forces_classification():
+    """An in-memory prior carries no problem_type, the flag picks cross entropy where inference guesses quantiles."""
+    torch.manual_seed(0)
+    prior = PriorDataLoader(
+        get_batch_function=get_classification_batch,
+        num_steps=2,
+        batch_size=4,
+        num_datapoints_max=16,
+        num_features=3,
+        device="cpu",
+    )
+    model = make_tiny_model(num_outputs=2)
+
+    assert isinstance(infer_criterion(model, prior, "cpu"), QuantileLoss)
+    assert isinstance(infer_criterion(model, prior, "cpu", problem="classification"), nn.CrossEntropyLoss)
+
+    trained = pretrainTFM(model=model, prior=prior, eval=[], problem="classification", epochs=1, device="cpu")
+    with torch.no_grad():
+        out = trained(torch.randn(1, 8, 3), torch.randint(0, 2, (1, 8)).float(), torch.randn(1, 4, 3))
+    assert torch.isfinite(out).all()
+
+
+def test_problem_flag_contradicting_prior_raises(tmp_path):
+    dump = tmp_path / "tiny_classification.h5"
+    make_classification_dump(dump)
+    prior = PriorDumpDataLoader(filename=str(dump), num_steps=2, batch_size=4, device="cpu")
+
+    with pytest.raises(ValueError, match="the prior says"):
+        pretrainTFM(prior=prior, problem="regression", device="cpu")
+
+
+def test_problem_flag_rejects_unknown_values():
+    with pytest.raises(ValueError, match="must be one of"):
+        pretrainTFM(problem="clustering", device="cpu")
 
 
 def test_fetch_dump_prefers_cache(tmp_path):

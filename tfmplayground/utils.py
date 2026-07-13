@@ -44,10 +44,11 @@ def fetch_dump(url, cache_dir=CACHE_DIR):
     return path
 
 
-def make_global_bucket_edges(filename, n_buckets=100, device=None, max_y=5_000_000):
+def make_global_bucket_edges(dump, n_buckets=100, device=None, max_y=5_000_000):
+    """Fits bucket edges on the targets of a dump, given as a path or anything with a filename attribute."""
     if device is None:
         device = get_default_device()
-    with h5py.File(filename, "r") as f:
+    with h5py.File(getattr(dump, "filename", dump), "r") as f:
         y = f["y"]
         num_tables, num_datapoints = y.shape
 

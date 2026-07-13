@@ -8,7 +8,7 @@ from tfmplayground import TabularClassifier, TabularRegressor, pretrainTFM
 from tfmplayground.external_priors import PriorDataLoader, PriorDumpDataLoader
 from tfmplayground.models import NanoTabPFNModel
 from tfmplayground.train import infer_criterion, infer_num_outputs
-from tfmplayground.utils import QuantileLoss, fetch_dump
+from tfmplayground.utils import QuantileLoss, fetch_dump, make_global_bucket_edges
 
 
 def make_tiny_model(num_outputs):
@@ -147,6 +147,7 @@ def test_pretrainTFM_regression_dump_infers_criterion(tmp_path):
     model = make_tiny_model(num_outputs=8)
     criterion = infer_criterion(model, prior, device="cpu")
     assert criterion.borders.shape == (9,)
+    assert torch.equal(criterion.borders, make_global_bucket_edges(prior, n_buckets=8, device="cpu"))
 
     trained = pretrainTFM(model=model, prior=prior, eval=[], epochs=2, device="cpu")
 

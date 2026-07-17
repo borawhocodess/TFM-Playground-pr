@@ -7,7 +7,7 @@ from torch import nn
 
 from tfmplayground import TabularClassifier, TabularRegressor, pretrainTFM
 from tfmplayground.evaluation import TOY_TASKS_REGRESSION, OpenMLEvaluationCallback
-from tfmplayground.external_priors import PriorDataLoader, PriorDumpDataLoader
+from tfmplayground.prior import PriorDataLoader, PriorDumpDataLoader
 from tfmplayground.models import NanoTabPFNModel
 from tfmplayground.train import infer_criterion, infer_num_outputs
 from tfmplayground.utils import QuantileLoss, fetch_dump, make_global_bucket_edges

@@ -122,7 +122,7 @@ def pretrainTFM(
 
 def default_prior(device: torch.device, problem: str) -> DataLoader:
     """Fetches the pre-generated dump for the given problem and wraps it in a dataloader."""
-    from tfmplayground.external_priors import PriorDumpDataLoader
+    from tfmplayground.prior import PriorDumpDataLoader
 
     return PriorDumpDataLoader(str(fetch_dump(DUMP_URLS[problem])), num_steps=25, batch_size=50, device=device)
 

@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from tfmplayground import pretrainTFM
-from tfmplayground.external_priors import PriorDataLoader
+from tfmplayground.prior import PriorDataLoader
 from tfmplayground.models import (
     ModdedNanoTabPFNModel,
     NanoTabICLv2,

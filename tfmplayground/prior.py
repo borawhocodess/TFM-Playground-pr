@@ -171,3 +171,222 @@ def dump_prior_to_h5(
 
             dump_train_test_split_index.resize(dump_train_test_split_index.shape[0] + batch_size, axis=0)
             dump_train_test_split_index[-batch_size:] = train_test_split_index
+
+
+def hyperparameters():
+    features = int(round(1 + np.random.beta(0.95, 8.0) * 159))  # tabpfnv2 paper training details section
+    rows = int(np.random.randint(1, 2049))  # tabpfnv2 paper training details section
+    rows = min(rows, 75000 // features - 128)  # tabpfnv2 paper training details section
+    nodes = int(round(np.exp(np.random.uniform(np.log(4), np.log(32)))))  # tabpfnv2 paper graph structure sampling subsection, NO RANGE
+    redirection = min(np.random.gamma(4.0, 1 / 8), 1.0)  # tabpfnv2 paper graph structure sampling subsection, NO RANGE
+    subgraphs = int(min(np.random.geometric(0.7), 4))  # tabpfnv2 paper graph structure sampling subsection, NO RANGE
+    mechanism = str(np.random.choice(["normal", "uniform", "mixed"]))  # tabpfnv2 paper initialization data sampling subsection, NO RANGE
+    prototypes = float(np.random.uniform(0.1, 0.9)) if np.random.rand() < 0.5 else 0.0  # tabpfnv2 paper initialization data sampling subsection, NO RANGE
+    temperature = float(np.exp(np.random.uniform(np.log(0.05), np.log(5.0))))  # tabpfnv2 paper initialization data sampling subsection, NO RANGE
+    dimension = int(round(np.exp(np.random.uniform(np.log(2), np.log(16)))))  # tabpfnv2 paper computational edge mappings subsection, NO RANGE
+    categoricals = float(np.clip(np.random.uniform(-0.5, 1.2), 0.0, 1.0))  # NO RANGE, clipped uniform like nanotabicl
+    return {
+        "features": features,
+        "rows": rows,
+        "nodes": nodes,
+        "redirection": redirection,
+        "subgraphs": subgraphs,
+        "mechanism": mechanism,
+        "prototypes": prototypes,
+        "temperature": temperature,
+        "dimension": dimension,
+        "categoricals": categoricals,
+    }
+
+
+def gnr(nodes, redirection, attempts=3):  # tabpfnv2 paper graph structure sampling subsection, NO RANGE for attempts
+    parents = [[] for _ in range(nodes)]
+    for child in range(1, nodes):
+        chosen = set()
+        for _ in range(attempts):
+            target = int(np.random.randint(child))
+            if np.random.rand() < redirection and parents[target]:
+                target = int(np.random.choice(parents[target]))
+            chosen.add(target)
+        parents[child] = sorted(chosen)
+    return parents
+
+
+activations = [  # tabpfnv2 paper computational edge mappings subsection
+    lambda x: x,  # identity
+    lambda x: torch.log(torch.clamp(torch.abs(x), min=1e-6)),  # logarithm
+    torch.sigmoid,  # sigmoid
+    torch.abs,  # absolute value
+    torch.sin,  # sine
+    torch.tanh,  # hyperbolic tangent
+    lambda x: torch.argsort(torch.argsort(x, dim=-1), dim=-1).float(),  # rank operation
+    torch.square,  # squaring
+    lambda x: torch.sign(x) * torch.abs(x) ** float(np.exp(np.random.uniform(np.log(0.1), np.log(10)))),  # power functions, NO RANGE
+    torch.nn.functional.softplus,  # smooth relu
+    lambda x: (x > 0).float(),  # step function
+    lambda x: x - torch.floor(x),  # modulo operation, NO RANGE
+]
+
+
+def neural(x):  # tabpfnv2 paper computational edge mappings subsection
+    d = x.shape[-1]
+    weight = torch.empty(d, d)
+    torch.nn.init.xavier_uniform_(weight)
+    bias = torch.randn(d)  # tabpfnv2 paper computational edge mappings subsection, NO RANGE
+    return activations[np.random.randint(len(activations))](x @ weight.T + bias)
+
+
+def init(n, d, mechanism):  # tabpfnv2 paper initialization data sampling subsection
+    if mechanism == "mixed":
+        mechanism = str(np.random.choice(["normal", "uniform"]))
+    scale = float(np.exp(np.random.uniform(np.log(0.1), np.log(10))))  # NO RANGE
+    if mechanism == "normal":
+        return scale * torch.randn(n, d)
+    return scale * (2 * torch.rand(n, d) - 1)
+
+
+def mix(x, prototypes, temperature):  # tabpfnv2 paper initialization data sampling subsection
+    if prototypes == 0.0:
+        return x
+    m = max(int(round(prototypes * len(x))), 1)
+    chosen = x[torch.randperm(len(x))[:m]]
+    weights = torch.from_numpy(np.random.dirichlet(np.full(m, temperature), size=len(x))).float()
+    return weights @ chosen
+
+
+def categorical(x):  # tabpfnv2 paper computational edge mappings subsection
+    categories = min(int(round(np.random.gamma(2.0, 1.0))) + 2, len(x))  # NO RANGE for gamma
+    prototypes = x[torch.randperm(len(x))[:categories]]  # NO RANGE, prototypes are random datapoints like nanotabicl
+    classes = torch.cdist(x, prototypes).argmin(dim=-1)
+    embeddings = torch.randn(categories, x.shape[-1])  # NO RANGE
+    return classes, embeddings[classes]
+
+
+def tree(x):  # tabpfnv2 paper computational edge mappings subsection
+    depth = int(np.random.randint(1, 5))  # NO RANGE
+    dims = torch.randint(x.shape[-1], (depth,))
+    thresholds = x[torch.randint(len(x), (depth,)), dims]
+    sides = (x[:, dims] > thresholds).long()
+    leaves = (sides * (2 ** torch.arange(depth))).sum(-1)
+    values = torch.randn(2 ** depth, x.shape[-1])  # NO RANGE
+    return values[leaves]
+
+
+def noise(x):  # tabpfnv2 paper computational edge mappings subsection
+    sigma = float(np.exp(np.random.uniform(np.log(1e-4), np.log(0.3))))  # NO RANGE, taken from tabicl noise_std
+    return x + sigma * torch.randn_like(x)
+
+
+def graph(nodes, redirection, subgraphs):  # tabpfnv2 paper graph structure sampling subsection
+    parents = []
+    for part in np.array_split(np.arange(nodes), subgraphs):
+        offset = len(parents)
+        parents.extend([[parent + offset for parent in ps] for ps in gnr(len(part), redirection)])
+    return parents
+
+
+def propagate(parents, n, dimension, mechanism, prototypes, temperature):  # tabpfnv2 paper details on the causal generative process section
+    values = []
+    for ps in parents:
+        if not ps:
+            values.append(mix(init(n, dimension, mechanism), prototypes, temperature))
+            continue
+        edges = []
+        for p in ps:
+            module = str(np.random.choice(["neural", "tree", "categorical"], p=[0.7, 0.15, 0.15]))  # NO RANGE
+            if module == "neural":
+                out = neural(values[p])
+            elif module == "tree":
+                out = tree(values[p])
+            else:
+                out = categorical(values[p])[1]
+            edges.append(noise(out))
+        value = torch.stack(edges).mean(0)
+        values.append((value - value.mean(0)) / (value.std(0) + 1e-6))  # not in tabpfnv2 paper, stabilisation like nanotabicl
+    return values
+
+
+def observe(values, features, categoricals):  # tabpfnv2 paper details on the causal generative process section
+    columns = []
+    kinds = []
+    for _ in range(features):
+        value = values[np.random.randint(len(values))]
+        if np.random.rand() < categoricals:
+            columns.append(categorical(value)[0].float())
+            kinds.append("categorical")
+        else:
+            columns.append(value[:, np.random.randint(value.shape[-1])])
+            kinds.append("continuous")
+    return torch.stack(columns, -1), kinds
+
+
+def warp(x):  # tabpfnv2 paper post-processing subsection
+    a = float(np.exp(np.random.uniform(np.log(0.2), np.log(5.0))))  # NO RANGE, taken from nanotabicl
+    b = float(np.exp(np.random.uniform(np.log(0.2), np.log(5.0))))  # NO RANGE, taken from nanotabicl
+    low = x.min(dim=0).values
+    high = x.max(dim=0).values
+    x = torch.clamp((x - low) / (high - low + 1e-30), 0.0, 1.0)
+    return 1.0 - (1.0 - x**a) ** b
+
+
+def quantize(x):  # tabpfnv2 paper post-processing subsection
+    buckets = int(round(np.random.gamma(2.0, 1.0))) + 2  # NO RANGE for gamma
+    columns = []
+    for j in range(x.shape[-1]):
+        edges = x[torch.randint(len(x), (buckets + 1,)), j].sort().values
+        columns.append(torch.bucketize(x[:, j].contiguous(), edges[1:-1]).float())
+    return torch.stack(columns, -1)
+
+
+def missing(x):  # tabpfnv2 paper post-processing subsection
+    rho = float(np.random.uniform(0.0, 0.3))  # NO RANGE
+    return torch.where(torch.rand_like(x) < rho, torch.nan, x)
+
+
+def get_batch(batch_size, num_datapoints_max, num_features, problem="classification"):
+    while True:
+        h = hyperparameters()
+        rows = min(h["rows"], num_datapoints_max - 128)
+        features = min(h["features"], num_features)
+        xs = []
+        ys = []
+        for _ in range(batch_size):
+            for _ in range(10):  # NO RANGE
+                g = graph(h["nodes"], h["redirection"], h["subgraphs"])
+                values = propagate(g, rows + 128, h["dimension"], h["mechanism"], h["prototypes"], h["temperature"])
+                observed, kinds = observe(values, features + 1, h["categoricals"])
+                x, y, kept = target(observed, kinds, problem)
+                if y is not None:
+                    xs.append(postprocess(x, kept))
+                    ys.append(y)
+                    break
+            else:
+                break
+        if len(xs) == batch_size:
+            return dict(x=torch.stack(xs), y=torch.stack(ys), target_y=torch.stack(ys), train_test_split_index=rows)
+
+
+def postprocess(x, kinds):  # tabpfnv2 paper post-processing subsection
+    x = x.clone()
+    chosen = [np.random.rand() < 0.5 for _ in range(3)]  # NO RANGE
+    if not any(chosen):
+        chosen[np.random.randint(3)] = True
+    continuous = [j for j, kind in enumerate(kinds) if kind == "continuous"]
+    for transform, on in zip([warp, quantize], chosen[:2]):
+        for j in continuous:
+            if on and np.random.rand() < 0.3:  # NO RANGE
+                x[:, j : j + 1] = transform(x[:, j : j + 1])
+    if chosen[2]:
+        x = missing(x)
+    return x
+
+
+def target(x, kinds, problem):  # tabpfnv2 paper target generation subsection
+    if problem == "regression":
+        candidates = [j for j, kind in enumerate(kinds) if kind == "continuous"]
+    else:
+        candidates = [j for j, kind in enumerate(kinds) if kind == "categorical" and len(x[:, j].unique()) <= 10]
+    if not candidates:
+        return None, None, None
+    j = int(np.random.choice(candidates))
+    return torch.cat([x[:, :j], x[:, j + 1 :]], -1), x[:, j], kinds[:j] + kinds[j + 1 :]

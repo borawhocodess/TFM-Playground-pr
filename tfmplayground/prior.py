@@ -175,7 +175,7 @@ def dump_prior_to_h5(
 
 def hyperparameters():
     features = int(round(1 + np.random.beta(0.95, 8.0) * 159))  # tabpfnv2 paper training details section
-    rows = int(np.random.randint(1, 2049))  # tabpfnv2 paper training details section
+    rows = int(np.random.randint(2, 2049))  # tabpfnv2 paper training details section, NO RANGE floor
     rows = min(rows, 75000 // features - 128)  # tabpfnv2 paper training details section
     nodes = int(round(np.exp(np.random.uniform(np.log(4), np.log(32)))))  # tabpfnv2 paper graph structure sampling subsection, NO RANGE
     redirection = min(np.random.gamma(4.0, 1 / 8), 1.0)  # tabpfnv2 paper graph structure sampling subsection, NO RANGE

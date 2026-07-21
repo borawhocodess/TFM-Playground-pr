@@ -378,9 +378,9 @@ def get_batch(batch_size, num_datapoints_max, num_features, problem="classificat
 
 def postprocess(x, kinds):  # tabpfnv2 paper post-processing subsection
     x = x.clone()
-    chosen = [np.random.rand() < 0.5 for _ in range(3)]  # NO RANGE
+    chosen = [np.random.rand() < 0.5, np.random.rand() < 0.5, False]  # NO RANGE, missing off until the model handles nan
     if not any(chosen):
-        chosen[np.random.randint(3)] = True
+        chosen[np.random.randint(2)] = True
     continuous = [j for j, kind in enumerate(kinds) if kind == "continuous"]
     for transform, on in zip([warp, quantize], chosen[:2]):
         for j in continuous:

@@ -186,6 +186,7 @@ def hyperparameters():
     prototypes = float(np.random.uniform(0.1, 0.9)) if np.random.rand() < 0.5 else 0.0  # tabpfnv2 paper initialization data sampling subsection, NO RANGE
     temperature = float(np.exp(np.random.uniform(np.log(0.05), np.log(5.0))))  # tabpfnv2 paper initialization data sampling subsection, NO RANGE
     dimension = int(round(np.exp(np.random.uniform(np.log(2), np.log(16)))))  # tabpfnv2 paper computational edge mappings subsection, NO RANGE
+    dimension = max(dimension, -(-(features + 1) // nodes))  # not in tabpfnv2 paper, width grows with demand like nanotabicl
     categoricals = float(np.clip(np.random.uniform(-0.5, 1.2), 0.0, 1.0))  # NO RANGE, clipped uniform like nanotabicl
     return {
         "features": features,

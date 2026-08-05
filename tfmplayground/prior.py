@@ -400,4 +400,5 @@ def target(x, kinds, problem):  # tabpfnv2 paper target generation subsection
     if not candidates:
         return None, None, None
     j = int(np.random.choice(candidates))
-    return torch.cat([x[:, :j], x[:, j + 1 :]], -1), x[:, j], kinds[:j] + kinds[j + 1 :]
+    y = x[:, j] if problem == "regression" else x[:, j].unique(return_inverse=True)[1].float()
+    return torch.cat([x[:, :j], x[:, j + 1 :]], -1), y, kinds[:j] + kinds[j + 1 :]

@@ -121,7 +121,7 @@ class TabularRegressor:
     def __init__(
         self,
         model: TabularFoundationModel,
-        dist: FullSupportBarDistribution | QuantileLoss | None = None,
+        dist: FullSupportBarDistribution | QuantileLoss,
         device: str | torch.device | None = None,
         num_mem_chunks: int = 8,
     ):

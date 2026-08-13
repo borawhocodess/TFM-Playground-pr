@@ -70,3 +70,6 @@ class QuantileLoss(nn.Module):
         error = target.unsqueeze(-1) - logits
         losses = torch.maximum(alphas * error, (alphas - 1.0) * error)
         return losses.sum(dim=-1)
+
+    def mean(self, logits: torch.Tensor) -> torch.Tensor:
+        return logits.mean(dim=-1)

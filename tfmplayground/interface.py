@@ -9,7 +9,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, OrdinalEncoder
 
 from tfmplayground.models import TabularFoundationModel
-from tfmplayground.utils import get_default_device
+from tfmplayground.utils import QuantileLoss, get_default_device
 
 
 # doing these as lambdas would cause TabularClassifier to not be pickle-able,
@@ -121,7 +121,7 @@ class TabularRegressor:
     def __init__(
         self,
         model: TabularFoundationModel,
-        dist: FullSupportBarDistribution | None = None,
+        dist: FullSupportBarDistribution | QuantileLoss,
         device: str | torch.device | None = None,
         num_mem_chunks: int = 8,
     ):
@@ -157,7 +157,7 @@ class TabularRegressor:
             y_train = torch.from_numpy(self.y_train_n).unsqueeze(0).to(torch.float).to(self.device)
 
             logits = self.model(X_train, y_train, X_test).squeeze(0)
-            preds_n = self.dist.mean(logits) if self.dist is not None else logits.mean(dim=-1)
+            preds_n = self.dist.mean(logits)
             preds = preds_n * self.y_train_std + self.y_train_mean
 
         return preds.cpu().numpy()

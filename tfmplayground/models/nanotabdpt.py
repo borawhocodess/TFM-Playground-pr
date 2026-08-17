@@ -1,5 +1,10 @@
 # Vendored from https://github.com/layer6ai-labs/TabDPT-inference (v1.2.0), adapted to
 # TabularFoundationModel. Modified from the original.
+#
+# The upstream constructor also takes enc_cell_dim and num_col_attn_layers. Both are
+# unused upstream too: they exist so TabDPTModel.load can forward every key of the
+# published checkpoint config. We construct the model directly and vendor no load
+# method, so both were dropped. Do not restore them when syncing with upstream.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Copyright 2024-2026 The Toronto-Dominion Bank and/or its affiliates
@@ -83,7 +88,6 @@ class TabDPTModel(TabularFoundationModel):
     def __init__(
         self,
         dropout: float,
-        enc_cell_dim: int,
         n_out: int,
         regression_bin_count: int,
         regression_bin_min: float,
@@ -96,7 +100,6 @@ class TabDPTModel(TabularFoundationModel):
         base_len: int,
         max_len: int,
         y_encoder_dim: int,
-        num_col_attn_layers: int = 2,
         n_thinking_rows: int = 0,
         classification: bool = True,
         use_flash: bool = False,

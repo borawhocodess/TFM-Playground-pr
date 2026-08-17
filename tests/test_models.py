@@ -42,7 +42,6 @@ def make_nanotabicl():
 def make_nanotabdpt():
     return TabDPTModel(
         dropout=0.0,
-        enc_cell_dim=8,
         n_out=3,
         regression_bin_count=8,
         regression_bin_min=-3.0,

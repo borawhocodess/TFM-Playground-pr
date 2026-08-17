@@ -56,8 +56,8 @@ Every part of the call can be replaced:
 ```python
 from tfmplayground import pretrainTFM
 from tfmplayground.evaluation import TOY_TASKS_CLASSIFICATION, OpenMLEvaluationCallback
-from tfmplayground.external_priors import PriorDumpDataLoader
 from tfmplayground.models import NanoTabPFNModel
+from tfmplayground.prior import PriorDumpDataLoader
 
 model = pretrainTFM(
     model=NanoTabPFNModel(
@@ -79,7 +79,7 @@ For regression we offer a pre-generated dataset containing 1.28M tables with 50 
 
 ### Our Code
 
-`tfmplayground/models/` contains the architectures, each implemented in a single file. `tfmplayground/train.py` implements `pretrainTFM` and a simple training loop and `tfmplayground/external_priors/` provides an interface to publicly available priors from other repositories as well as a dataloader for loading HDF5 dumps.
+`tfmplayground/models/` contains the architectures, each implemented in a single file. `tfmplayground/train.py` implements `pretrainTFM` and a simple training loop, `tfmplayground/prior.py` provides the dataloaders, including one for loading HDF5 dumps, and `tfmplayground/external_priors/` provides an interface to publicly available priors from other repositories.
 We will release multiple dumps of different scales soon. We also offer an interface where you can provide your own get\_batch function.
 
 ### Creating your own datasets
@@ -96,7 +96,7 @@ python -m tfmplayground.external_priors --lib tabicl \
 ```
 which can afterwards be loaded via
 ```python
-from tfmplayground.external_priors import PriorDumpDataLoader
+from tfmplayground.prior import PriorDumpDataLoader
 prior = PriorDumpDataLoader('tabicl_4k_50x3.h5', num_steps=20, batch_size=4)
 ```
 You can also just let it create the data on-the-fly via:

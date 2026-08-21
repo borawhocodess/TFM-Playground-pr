@@ -7,9 +7,9 @@ from torch import nn
 
 from tfmplayground import TabularClassifier, TabularRegressor, pretrainTFM
 from tfmplayground.evaluation import TOY_TASKS_REGRESSION, OpenMLEvaluationCallback
-from tfmplayground.prior import PriorDataLoader, PriorDumpDataLoader, get_batch
+from tfmplayground.prior import MAX_NUM_CLASSES, PriorDataLoader, PriorDumpDataLoader, get_batch
 from tfmplayground.models import NanoTabPFNModel
-from tfmplayground.train import infer_criterion, infer_num_outputs
+from tfmplayground.train import default_prior, infer_criterion, infer_num_outputs
 from tfmplayground.utils import QuantileLoss, fetch_dump, make_global_bucket_edges
 
 
@@ -309,3 +309,27 @@ def test_pretrainTFM_trains_on_a_sampled_regression_prior():
     rng = np.random.default_rng(0)
     regressor.fit(rng.standard_normal((20, 4)), rng.standard_normal(20))
     assert np.isfinite(regressor.predict(rng.standard_normal((5, 4)))).all()
+
+
+@pytest.mark.parametrize("problem", ["classification", "regression"])
+def test_default_prior_samples_the_scm_on_the_fly(problem):
+    """The default prior needs no dump and hands the problem down to our own get_batch."""
+    prior = default_prior("cpu", problem)
+
+    assert isinstance(prior, PriorDataLoader)
+    assert getattr(prior, "filename", None) is None
+    assert prior.problem_type == problem
+
+    batch = prior.get_batch()
+    assert batch["x"].shape[0] == prior.batch_size
+    assert 0 < int(batch["train_test_split_index"]) < batch["x"].shape[1]
+
+
+def test_default_classification_prior_fits_the_default_head():
+    """The scm caps itself at ten classes, which is exactly what the default model head holds."""
+    prior = default_prior("cpu", "classification")
+    assert prior.max_num_classes == MAX_NUM_CLASSES
+
+    labels = prior.get_batch()["y"].unique()
+    assert labels.numel() <= MAX_NUM_CLASSES
+    assert torch.equal(labels, torch.arange(labels.numel(), dtype=labels.dtype))

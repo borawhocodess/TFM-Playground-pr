@@ -8,7 +8,9 @@ from torch.utils.data import DataLoader
 
 from tfmplayground.callbacks import Callback, ConsoleLoggerCallback
 from tfmplayground.models import NanoTabPFNModel, TabularFoundationModel
-from tfmplayground.utils import QuantileLoss, fetch_dump, get_default_device, make_global_bucket_edges
+from tfmplayground.utils import QuantileLoss, get_default_device, make_global_bucket_edges
+
+PROBLEMS = ("classification", "regression")
 
 DUMP_URLS = {
     "classification": "https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_3_100k_classification.h5",
@@ -56,8 +58,8 @@ def pretrainTFM(
     """
     if regime is not None:
         raise NotImplementedError("training regimes are not a thing yet")
-    if problem is not None and problem not in DUMP_URLS:
-        raise ValueError(f"problem must be one of {sorted(DUMP_URLS)}, got {problem!r}")
+    if problem is not None and problem not in PROBLEMS:
+        raise ValueError(f"problem must be one of {sorted(PROBLEMS)}, got {problem!r}")
     prior_problem = getattr(prior, "problem_type", None)
     if problem is not None and prior_problem is not None and problem != prior_problem:
         raise ValueError(f"problem={problem!r} but the prior says {prior_problem!r}")
@@ -121,10 +123,19 @@ def pretrainTFM(
 
 
 def default_prior(device: torch.device, problem: str) -> DataLoader:
-    """Fetches the pre-generated dump for the given problem and wraps it in a dataloader."""
-    from tfmplayground.prior import PriorDumpDataLoader
+    """Wraps our own structural causal model prior, sampled on the fly, nothing to download."""
+    from tfmplayground.prior import MAX_NUM_CLASSES, PriorDataLoader, get_batch
 
-    return PriorDumpDataLoader(str(fetch_dump(DUMP_URLS[problem])), num_steps=25, batch_size=50, device=device)
+    return PriorDataLoader(
+        get_batch_function=get_batch,
+        num_steps=25,
+        batch_size=4,
+        num_datapoints_max=160,
+        num_features=8,
+        device=device,
+        problem=problem,
+        max_num_classes=MAX_NUM_CLASSES if problem == "classification" else None,
+    )
 
 
 def default_model(problem: str | None) -> TabularFoundationModel:

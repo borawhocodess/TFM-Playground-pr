@@ -17,7 +17,7 @@ from tfmplayground import pretrainTFM
 model = pretrainTFM()
 ```
 
-Everything is optional: with no arguments this downloads [100k pre-generated classification datasets](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_3_100k_classification.h5) with 50 datapoints and 3 features each on first use, builds a small nanoTabPFN sized to fit them, picks a loss criterion and pretrains on the best available device, logging the loss to the console. This should take a couple of minutes on a modern NVIDIA GPU (longer on a laptop).
+Everything is optional and nothing is downloaded: with no arguments this samples tables from our own structural causal model prior on the fly, builds a small nanoTabPFN with a ten class head to fit them, picks cross entropy as the criterion and pretrains on the best available device, logging the loss to the console. This takes around ten minutes on a Macbook M4 Pro GPU.
 
 The same goes for regression:
 
@@ -25,7 +25,21 @@ The same goes for regression:
 model = pretrainTFM(problem="regression")
 ```
 
-which instead downloads [1.28M pre-generated regression datasets](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_1280k_regression.h5) (~1GB) and fits a bar distribution over 100 buckets as the criterion. The fitted distribution rides on the trained model as `model.dist`, so `TabularRegressor(model)` serves it directly.
+which asks the same prior for continuous targets instead and fits a bar distribution over 100 buckets on a sample of them as the criterion. The fitted distribution rides on the trained model as `model.dist`, so `TabularRegressor(model)` serves it directly.
+
+### The prior
+
+`tfmplayground/prior.py` implements the TabPFNv2 prior from scratch: a scale-free DAG is sampled by growing network with redirection, data is pushed through it along edges that are small neural networks, decision trees or categorical discretizations with noise added at each one, and the resulting columns are warped and quantized before one of them is taken as the target. Every choice the paper does not pin down is marked `NO RANGE` in the source, next to where we took it from instead.
+
+You can sample it directly:
+
+```python
+from tfmplayground.prior import get_batch
+
+batch = get_batch(batch_size=4, num_datapoints_max=160, num_features=8, problem="regression")
+```
+
+Each batch is a dict of `x`, `y`, `target_y` and `train_test_split_index`, which is the contract every prior in this repository follows. Classification targets are limited to ten classes, matching the paper.
 
 The trained model plugs straight into our scikit-learn like interface:
 
@@ -58,6 +72,8 @@ from tfmplayground import pretrainTFM
 from tfmplayground.evaluation import TOY_TASKS_CLASSIFICATION, OpenMLEvaluationCallback
 from tfmplayground.models import NanoTabPFNModel
 from tfmplayground.prior import PriorDumpDataLoader
+from tfmplayground.train import DUMP_URLS
+from tfmplayground.utils import fetch_dump
 
 model = pretrainTFM(
     model=NanoTabPFNModel(
@@ -67,19 +83,19 @@ model = pretrainTFM(
         num_layers=6,
         num_outputs=10,
     ),
-    prior=PriorDumpDataLoader("50x3_3_100k_classification.h5", num_steps=25, batch_size=50),
+    prior=PriorDumpDataLoader(fetch_dump(DUMP_URLS["classification"]), num_steps=25, batch_size=50),
     eval=OpenMLEvaluationCallback(TOY_TASKS_CLASSIFICATION),
     epochs=80,
 )
 ```
 
-`model` takes any architecture from `tfmplayground/models/`, they all share the same forward contract. `prior` takes any of our dataloaders, `eval` takes a callback or list of callbacks run at the end of each epoch. The loss criterion is inferred from the prior (cross entropy for classification, a bar distribution fitted on the dump for regression) unless you pass one via `criterion`.
+`model` takes any architecture from `tfmplayground/models/`, they all share the same forward contract. `prior` takes any of our dataloaders, `eval` takes a callback or list of callbacks run at the end of each epoch. The loss criterion is inferred from the prior (cross entropy for classification, a bar distribution fitted on its targets for regression) unless you pass one via `criterion`.
 
-For regression we offer a pre-generated dataset containing 1.28M tables with 50 datapoints and 3 features each [here](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_1280k_regression.h5).
+The example above pretrains on [100k pre-generated classification datasets](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_3_100k_classification.h5) with 50 datapoints and 3 features each, downloaded on first use. For regression we offer a pre-generated dataset containing 1.28M tables with 50 datapoints and 3 features each [here](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_1280k_regression.h5).
 
 ### Our Code
 
-`tfmplayground/models/` contains the architectures, each implemented in a single file. `tfmplayground/train.py` implements `pretrainTFM` and a simple training loop, `tfmplayground/prior.py` provides the dataloaders, including one for loading HDF5 dumps, and `tfmplayground/external_priors/` provides an interface to publicly available priors from other repositories.
+`tfmplayground/models/` contains the architectures, each implemented in a single file. `tfmplayground/train.py` implements `pretrainTFM` and a simple training loop, `tfmplayground/prior.py` holds our own prior and the dataloaders, including one for loading HDF5 dumps, and `tfmplayground/external_priors/` provides an interface to publicly available priors from other repositories.
 We will release multiple dumps of different scales soon. We also offer an interface where you can provide your own get\_batch function.
 
 ### Creating your own datasets

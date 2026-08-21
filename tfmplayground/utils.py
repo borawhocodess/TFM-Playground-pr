@@ -44,11 +44,27 @@ def fetch_dump(url, cache_dir=CACHE_DIR):
     return path
 
 
-def make_global_bucket_edges(dump, n_buckets=100, device=None, max_y=5_000_000):
-    """Fits bucket edges on the targets of a dump, given as a path or anything with a filename attribute."""
+def make_global_bucket_edges(prior, n_buckets=100, device=None, max_y=5_000_000):
+    """
+    Fits bucket edges on the targets of a prior, given as a path to a dump, anything carrying a
+    filename attribute, or any dataloader we can sample batches off.
+    """
     if device is None:
         device = get_default_device()
-    with h5py.File(getattr(dump, "filename", dump), "r") as f:
+    filename = getattr(prior, "filename", prior if isinstance(prior, str | Path) else None)
+    ys_concat = dump_targets(filename, max_y) if filename is not None else sampled_targets(prior, max_y)
+
+    if ys_concat.size < n_buckets:
+        raise ValueError(f"Too few target samples ({ys_concat.size}) to compute {n_buckets} buckets.")
+
+    ys_tensor = torch.tensor(ys_concat, dtype=torch.float32, device=device)
+    global_bucket_edges = get_bucket_limits(n_buckets, ys=ys_tensor).to(device)
+    return global_bucket_edges
+
+
+def dump_targets(filename, max_y):
+    """Reads the targets of a dump and z-normalizes every table over all of its datapoints."""
+    with h5py.File(filename, "r") as f:
         y = f["y"]
         num_tables, num_datapoints = y.shape
 
@@ -57,14 +73,26 @@ def make_global_bucket_edges(dump, n_buckets=100, device=None, max_y=5_000_000):
         y_subset = np.array(y[:num_tables_to_use, :], dtype=np.float32)
         y_means = y_subset.mean(axis=1, keepdims=True)
         y_stds = y_subset.std(axis=1, keepdims=True, ddof=1) + 1e-8
-        ys_concat = ((y_subset - y_means) / y_stds).ravel()
+        return ((y_subset - y_means) / y_stds).ravel()
 
-    if ys_concat.size < n_buckets:
-        raise ValueError(f"Too few target samples ({ys_concat.size}) to compute {n_buckets} buckets.")
 
-    ys_tensor = torch.tensor(ys_concat, dtype=torch.float32, device=device)
-    global_bucket_edges = get_bucket_limits(n_buckets, ys=ys_tensor).to(device)
-    return global_bucket_edges
+def sampled_targets(prior, max_y):
+    """Samples the targets off a prior and z-normalizes every table the way the training loop does."""
+    collected = []
+    total = 0
+    for batch in prior:
+        y = batch["y"].detach().to("cpu", torch.float32)
+        y_train = y[:, : int(batch["train_test_split_index"])]
+        y_means = y_train.mean(dim=1, keepdim=True)
+        y_stds = y_train.std(dim=1, keepdim=True) + 1e-8
+        normalized = ((y - y_means) / y_stds).ravel().numpy()
+        collected.append(normalized)
+        total += normalized.size
+        if total >= max_y:
+            break
+    if not collected:
+        raise ValueError("The prior yielded no batches to fit bucket edges on.")
+    return np.concatenate(collected)
 
 
 class QuantileLoss(nn.Module):

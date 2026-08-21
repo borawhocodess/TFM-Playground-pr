@@ -150,7 +150,7 @@ def infer_criterion(
     if problem == "classification" or (problem is None and getattr(prior, "max_num_classes", None)):
         return nn.CrossEntropyLoss()
     num_outputs = infer_num_outputs(model)
-    if getattr(prior, "filename", None) is not None:
+    if getattr(prior, "filename", None) is not None or getattr(prior, "problem_type", None) == "regression":
         return FullSupportBarDistribution(make_global_bucket_edges(prior, n_buckets=num_outputs, device=device))
     return QuantileLoss(num_outputs)
 

@@ -7,7 +7,7 @@ from torch import nn
 
 from tfmplayground import TabularClassifier, TabularRegressor, pretrainTFM
 from tfmplayground.evaluation import TOY_TASKS_REGRESSION, OpenMLEvaluationCallback
-from tfmplayground.prior import PriorDataLoader, PriorDumpDataLoader
+from tfmplayground.prior import PriorDataLoader, PriorDumpDataLoader, get_batch
 from tfmplayground.models import NanoTabPFNModel
 from tfmplayground.train import infer_criterion, infer_num_outputs
 from tfmplayground.utils import QuantileLoss, fetch_dump, make_global_bucket_edges
@@ -265,3 +265,47 @@ def test_prior_dataloader_leaves_the_problem_out_when_unset():
 
     assert prior.problem_type is None
     assert prior.get_batch()["x"].shape == (2, 16, 3)
+
+
+def make_scm_regression_prior(num_steps=2, batch_size=2):
+    return PriorDataLoader(
+        get_batch_function=get_batch,
+        num_steps=num_steps,
+        batch_size=batch_size,
+        num_datapoints_max=160,
+        num_features=4,
+        device="cpu",
+        problem="regression",
+    )
+
+
+def test_bucket_edges_fit_on_a_prior_with_no_dump_behind_it():
+    """Bucket edges come off sampled batches when there is no file to read them from."""
+    edges = make_global_bucket_edges(make_scm_regression_prior(), n_buckets=8, device="cpu")
+
+    assert edges.shape == (9,)
+    assert bool(torch.all(edges[1:] > edges[:-1]))
+
+
+def test_regression_prior_without_a_dump_infers_a_bar_distribution():
+    """A prior that declares regression earns a fitted bar distribution, not the quantile fallback."""
+    criterion = infer_criterion(make_tiny_model(num_outputs=8), make_scm_regression_prior(), "cpu")
+
+    assert isinstance(criterion, FullSupportBarDistribution)
+    assert criterion.borders.shape == (9,)
+
+
+def test_pretrainTFM_trains_on_a_sampled_regression_prior():
+    """The whole path end to end: sampled batches in, a model carrying its fitted distribution out."""
+    torch.manual_seed(0)
+
+    trained = pretrainTFM(
+        model=make_tiny_model(num_outputs=8), prior=make_scm_regression_prior(), eval=[], epochs=1, device="cpu"
+    )
+
+    assert isinstance(trained.dist, FullSupportBarDistribution)
+
+    regressor = TabularRegressor(trained, device="cpu")
+    rng = np.random.default_rng(0)
+    regressor.fit(rng.standard_normal((20, 4)), rng.standard_normal(20))
+    assert np.isfinite(regressor.predict(rng.standard_normal((5, 4)))).all()

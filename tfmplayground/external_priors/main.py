@@ -6,7 +6,7 @@ import random
 import numpy as np
 import torch
 
-from .base import dump_prior_to_h5
+from tfmplayground.prior import DictPrior, dump_prior_to_h5
 from .tabicl import TabICLPriorDataLoader
 from .tabpfn import TabPFNPriorDataLoader, build_tabpfn_prior
 from .ticl import TICLPriorDataLoader, build_ticl_prior
@@ -112,5 +112,12 @@ def main():
         )
 
     dump_prior_to_h5(
-        prior, args.max_classes, args.batch_size, args.save_path, problem_type, args.max_seq_len, args.max_features
+        DictPrior(prior, problem=problem_type, max_num_classes=args.max_classes or None),
+        args.num_batches,
+        args.max_classes,
+        args.batch_size,
+        args.save_path,
+        problem_type,
+        args.max_seq_len,
+        args.max_features,
     )

@@ -1,8 +1,5 @@
-import os
-
 import numpy as np
 import pandas as pd
-import requests
 import torch
 import torch.nn.functional as F
 from pfns.bar_distribution import FullSupportBarDistribution
@@ -11,27 +8,11 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, OrdinalEncoder
 
-from tfmplayground.models.nanotabpfn import NanoTabPFNModel
+from tfmplayground.models import TabularFoundationModel
 from tfmplayground.utils import get_default_device
 
 
-def init_model_from_state_dict_file(file_path):
-    """
-    reads model architecture from state dict, instantiates the architecture and loads the weights
-    """
-    state_dict = torch.load(file_path, map_location=torch.device("cpu"))
-    model = NanoTabPFNModel(
-        num_attention_heads=state_dict["architecture"]["num_attention_heads"],
-        embedding_size=state_dict["architecture"]["embedding_size"],
-        mlp_hidden_size=state_dict["architecture"]["mlp_hidden_size"],
-        num_layers=state_dict["architecture"]["num_layers"],
-        num_outputs=state_dict["architecture"]["num_outputs"],
-    )
-    model.load_state_dict(state_dict["model"])
-    return model
-
-
-# doing these as lambdas would cause NanoTabPFNClassifier to not be pickle-able,
+# doing these as lambdas would cause TabularClassifier to not be pickle-able,
 # which would cause issues if we want to run it inside the tabarena codebase
 def to_pandas(x):
     return pd.DataFrame(x) if not isinstance(x, pd.DataFrame) else x
@@ -88,32 +69,18 @@ def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> ColumnTransformer:
     return preprocessor
 
 
-class NanoTabPFNClassifier:
+class TabularClassifier:
     """scikit-learn like interface"""
 
     def __init__(
         self,
-        model: NanoTabPFNModel | str | None = None,
+        model: TabularFoundationModel,
         device: None | str | torch.device = None,
-        num_mem_chunks: int = 8,
     ):
         if device is None:
             device = get_default_device()
-        if model is None:
-            model = "checkpoints/nanotabpfn.pth"
-            if not os.path.isfile(model):
-                os.makedirs("checkpoints", exist_ok=True)
-                print("No cached model found, downloading model checkpoint.")
-                response = requests.get(
-                    "https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/nanotabpfn_classifier.pth"
-                )
-                with open(model, "wb") as f:
-                    f.write(response.content)
-        if isinstance(model, str):
-            model = init_model_from_state_dict_file(model)
         self.model = model.to(device)
         self.device = device
-        self.num_mem_chunks = num_mem_chunks
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
         """stores X_train and y_train for later use, also computes the highest class number occuring in num_classes"""
@@ -132,14 +99,13 @@ class NanoTabPFNClassifier:
         creates (x,y), runs it through our PyTorch Model, cuts off the classes that didn't appear in the training data
         and applies softmax to get the probabilities
         """
-        x = np.concatenate((self.X_train, self.feature_preprocessor.transform(X_test)))
-        y = self.y_train
+        X_test = self.feature_preprocessor.transform(X_test)
         with torch.no_grad():
-            x = torch.from_numpy(x).unsqueeze(0).to(torch.float).to(self.device)  # introduce batch size 1
-            y = torch.from_numpy(y).unsqueeze(0).to(torch.float).to(self.device)
-            out = self.model(
-                (x, y), train_test_split_index=len(self.X_train), num_mem_chunks=self.num_mem_chunks
-            ).squeeze(0)  # remove batch size 1
+            # introduce batch size 1
+            X_train = torch.from_numpy(self.X_train).unsqueeze(0).to(torch.float).to(self.device)
+            X_test = torch.from_numpy(X_test).unsqueeze(0).to(torch.float).to(self.device)
+            y_train = torch.from_numpy(self.y_train).unsqueeze(0).to(torch.float).to(self.device)
+            out = self.model(X_train, y_train, X_test).squeeze(0)  # remove batch size 1
             # our pretrained classifier supports up to num_outputs classes, if the dataset has less we cut off the rest
             out = out[:, : self.num_classes]
             # apply softmax to get a probability distribution
@@ -147,47 +113,20 @@ class NanoTabPFNClassifier:
             return probabilities.to("cpu").numpy()
 
 
-class NanoTabPFNRegressor:
+class TabularRegressor:
     """scikit-learn like interface"""
 
     def __init__(
         self,
-        model: NanoTabPFNModel | str | None = None,
-        dist: FullSupportBarDistribution | str | None = None,
+        model: TabularFoundationModel,
+        dist: FullSupportBarDistribution | None = None,
         device: str | torch.device | None = None,
-        num_mem_chunks: int = 8,
     ):
         if device is None:
             device = get_default_device()
-        if model is None:
-            os.makedirs("checkpoints", exist_ok=True)
-            model = "checkpoints/nanotabpfn_regressor.pth"
-            dist = "checkpoints/nanotabpfn_regressor_buckets.pth"
-            if not os.path.isfile(model):
-                print("No cached model found, downloading model checkpoint.")
-                response = requests.get(
-                    "https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/nanotabpfn_regressor.pth"
-                )
-                with open(model, "wb") as f:
-                    f.write(response.content)
-            if not os.path.isfile(dist):
-                print("No cached bucket edges found, downloading bucket edges.")
-                response = requests.get(
-                    "https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/nanotabpfn_regressor_buckets.pth"
-                )
-                with open(dist, "wb") as f:
-                    f.write(response.content)
-        if isinstance(model, str):
-            model = init_model_from_state_dict_file(model)
-
-        if isinstance(dist, str):
-            bucket_edges = torch.load(dist, map_location=device)
-            dist = FullSupportBarDistribution(bucket_edges).float()
-
         self.model = model.to(device)
         self.device = device
-        self.dist = dist
-        self.num_mem_chunks = num_mem_chunks
+        self.dist = dist if dist is not None else getattr(model, "dist", None)
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
         """
@@ -205,20 +144,16 @@ class NanoTabPFNRegressor:
     def predict(self, X_test: np.ndarray) -> np.ndarray:
         """
         Performs in-context learning using X_train and y_train.
-        Predicts the means of the output distributions for X_test.
-        Renormalizes the predictions back to the original target scale.
         """
-        X = np.concatenate((self.X_train, self.feature_preprocessor.transform(X_test)))
-        y = self.y_train_n
+        X_test = self.feature_preprocessor.transform(X_test)
 
         with torch.no_grad():
-            X_tensor = torch.tensor(X, dtype=torch.float32, device=self.device).unsqueeze(0)
-            y_tensor = torch.tensor(y, dtype=torch.float32, device=self.device).unsqueeze(0)
+            X_train = torch.from_numpy(self.X_train).unsqueeze(0).to(torch.float).to(self.device)
+            X_test = torch.from_numpy(X_test).unsqueeze(0).to(torch.float).to(self.device)
+            y_train = torch.from_numpy(self.y_train_n).unsqueeze(0).to(torch.float).to(self.device)
 
-            logits = self.model(
-                (X_tensor, y_tensor), train_test_split_index=len(self.X_train), num_mem_chunks=self.num_mem_chunks
-            ).squeeze(0)
-            preds_n = self.dist.mean(logits)
+            logits = self.model(X_train, y_train, X_test).squeeze(0)
+            preds_n = self.dist.mean(logits) if self.dist is not None else logits.mean(dim=-1)
             preds = preds_n * self.y_train_std + self.y_train_mean
 
         return preds.cpu().numpy()

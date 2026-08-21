@@ -56,13 +56,24 @@ select = [
     "B",   # flake8-bugbear
     "SIM", # flake8-simplify
 ]
-ignore = []
+ignore = [
+    "E741",  # ambiguous variable name
+]
+
+[tool.ruff.lint.per-file-ignores]
+# vendored google code, kept byte-faithful to upstream
+"tfmplayground/models/nanotabfm.py" = ["F401", "UP006", "UP035", "SIM108"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+exclude = ["tfmplayground/models/nanotabfm.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [dependency-groups]
 dev = [
     "ruff>=0.15.10",
+    "pytest>=8",
 ]

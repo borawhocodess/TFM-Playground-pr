@@ -7,6 +7,7 @@ import numpy as np
 import torch
 
 from tfmplayground.prior import DictPrior, dump_prior_to_h5
+
 from .tabicl import TabICLPriorDataLoader
 from .tabpfn import TabPFNPriorDataLoader, build_tabpfn_prior
 from .ticl import TICLPriorDataLoader, build_ticl_prior

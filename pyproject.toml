@@ -65,6 +65,10 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # vendored google code, kept byte-faithful to upstream
 "tfmplayground/models/nanotabfm.py" = ["F401", "UP006", "UP035", "SIM108"]
+# vendored NanoTabICL code, kept close to upstream
+"tfmplayground/models/nanotabicl.py" = ["E401", "I001", "UP045"]
+# paper-source annotations are intentionally kept beside their sampled values
+"tfmplayground/prior.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"

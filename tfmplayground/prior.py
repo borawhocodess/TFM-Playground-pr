@@ -488,7 +488,7 @@ def postprocess(x, kinds):  # tabpfnv2 paper post-processing subsection
     if not any(chosen):
         chosen[np.random.randint(2)] = True
     continuous = [j for j, kind in enumerate(kinds) if kind == "continuous"]
-    for transform, on in zip([warp, quantize], chosen[:2]):
+    for transform, on in zip([warp, quantize], chosen[:2], strict=True):
         for j in continuous:
             if on and np.random.rand() < 0.3:  # NO RANGE
                 x[:, j : j + 1] = transform(x[:, j : j + 1])

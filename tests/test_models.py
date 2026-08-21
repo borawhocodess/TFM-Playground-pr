@@ -2,9 +2,8 @@ import pytest
 import torch
 from torch import nn
 
-from tfmplayground import pretrainTFM
 import tfmplayground.models.nanotabdpt as nanotabdpt_module
-from tfmplayground.prior import FunctionPrior
+from tfmplayground import pretrainTFM
 from tfmplayground.models import (
     ModdedNanoTabPFNModel,
     NanoTabICLv2,
@@ -12,6 +11,7 @@ from tfmplayground.models import (
     TabDPTModel,
     TabFMModel,
 )
+from tfmplayground.prior import FunctionPrior
 
 
 def make_nanotabpfn():
@@ -126,7 +126,8 @@ def test_pretrainTFM_swaps_any_model(make_model):
     assert out.shape == (2, 5, 3)
     assert torch.isfinite(out).all()
     assert any(
-        not torch.equal(before, after.detach()) for before, after in zip(parameters_before, trained.parameters())
+        not torch.equal(before, after.detach())
+        for before, after in zip(parameters_before, trained.parameters(), strict=True)
     )
 
 

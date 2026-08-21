@@ -28,13 +28,11 @@ dependencies = [
     "tabicl[pretrain]",
     "ticl @ git+https://github.com/microsoft/ticl.git@main",
     "tabpfn-v1-prior @ git+https://github.com/automl/tabpfn-v1-prior.git",
-    "interpret",
-    "numba",
     "mlflow",
+    "wandb>=0.20",
 ]
 
 [project.optional-dependencies]
-wandb = ["wandb>=0.20"]
 tensorboard = ["tensorboard>=2.19"]
 [project.urls]
 Homepage = "https://github.com/automl/TFM-Playground"

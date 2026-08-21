@@ -206,7 +206,7 @@ def train(
             logging, validation, or other custom actions.
 
     Returns:
-        (torch.Tensor) a tensor of shape (num_rows, batch_size, num_features, embedding_size)
+        A pair of the trained model and the final epoch's mean loss.
     """
     if multi_gpu:
         model = nn.DataParallel(model)
@@ -228,14 +228,16 @@ def train(
             epoch_start_time = time.time()
             model.train()  # Turn on the train mode
             optimizer.train()
+            optimizer.zero_grad()
             total_loss = 0.0
-            for i in range(steps_per_epoch):
+            successful_batches = 0
+            for _ in range(steps_per_epoch):
                 x_train, y_train, x_test, targets = next(batches)
                 x_train = x_train.to(device)
                 y_train = y_train.to(device)
                 x_test = x_test.to(device)
                 targets = targets.to(device)
-                if torch.isnan(x_train).any() or torch.isnan(x_test).any() or torch.isnan(y_train).any():
+                if not all(torch.isfinite(tensor).all() for tensor in (x_train, y_train, x_test, targets)):
                     continue
 
                 if regression_task:
@@ -243,6 +245,8 @@ def train(
                     y_std = y_train.std(dim=1, keepdim=True) + 1e-8
                     y_train = (y_train - y_mean) / y_std
                     targets = (targets - y_mean) / y_std
+                    if not torch.isfinite(y_train).all() or not torch.isfinite(targets).all():
+                        continue
 
                 output = model(x_train, y_train, x_test)
                 if classification_task:
@@ -253,19 +257,25 @@ def train(
                 loss = losses.mean() / accumulate_gradients
                 loss.backward()
                 total_loss += loss.cpu().detach().item() * accumulate_gradients
+                successful_batches += 1
 
-                if (i + 1) % accumulate_gradients == 0:
+                if successful_batches % accumulate_gradients == 0:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                     optimizer.step()
                     optimizer.zero_grad()
 
+            if successful_batches == 0:
+                raise RuntimeError("the prior produced no finite batches in this epoch")
+            if successful_batches % accumulate_gradients:
+                optimizer.zero_grad()
+
             end_time = time.time()
-            mean_loss = total_loss / steps_per_epoch
+            mean_loss = total_loss / successful_batches
             model.eval()
             optimizer.eval()
 
             for callback in callbacks:
-                if type(criterion) is FullSupportBarDistribution:
+                if isinstance(criterion, FullSupportBarDistribution):
                     callback.on_epoch_end(
                         epoch,
                         end_time - epoch_start_time,
@@ -283,4 +293,4 @@ def train(
         for callback in callbacks:
             callback.close()
 
-    return (model.module if multi_gpu else model), total_loss
+    return (model.module if multi_gpu else model), mean_loss

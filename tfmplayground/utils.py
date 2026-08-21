@@ -66,17 +66,37 @@ def make_global_bucket_edges(prior, n_buckets=100, device=None, max_y=5_000_000,
 
 
 def dump_targets(filename, max_y):
-    """Reads the targets of a dump and z-normalizes every table over all of its datapoints."""
+    """Read real targets and normalize them from each table's training split."""
     with h5py.File(filename, "r") as f:
         y = f["y"]
-        num_tables, num_datapoints = y.shape
+        num_tables, stored_num_datapoints = y.shape
+        lengths = f.get("num_datapoints")
+        split_key = "train_test_split_index" if "train_test_split_index" in f else "single_eval_pos"
+        splits = f[split_key]
+        collected = []
+        total = 0
 
-        num_tables_to_use = min(num_tables, max_y // num_datapoints)
+        for table_index in range(num_tables):
+            length = int(lengths[table_index]) if lengths is not None else stored_num_datapoints
+            split = int(splits[table_index])
+            if not 1 < split <= length:
+                raise ValueError(
+                    f"table {table_index} has invalid training split {split} for {length} datapoints"
+                )
 
-        y_subset = np.array(y[:num_tables_to_use, :], dtype=np.float32)
-        y_means = y_subset.mean(axis=1, keepdims=True)
-        y_stds = y_subset.std(axis=1, keepdims=True, ddof=1) + 1e-8
-        return ((y_subset - y_means) / y_stds).ravel()
+            values = np.asarray(y[table_index, :length], dtype=np.float32)
+            train_values = values[:split]
+            mean = train_values.mean()
+            std = train_values.std(ddof=1) + 1e-8
+            normalized = (values - mean) / std
+
+            remaining = max_y - total
+            if remaining <= 0:
+                break
+            collected.append(normalized[:remaining])
+            total += min(normalized.size, remaining)
+
+    return np.concatenate(collected) if collected else np.array([], dtype=np.float32)
 
 
 def sampled_targets(prior, max_y, batch_size=8, max_batches=25):

@@ -137,7 +137,14 @@ class DictPrior(Prior):
         )
 
     def batch(self, batch_size: int | None = None) -> Batch:
-        d = next(self.batches)
+        try:
+            d = next(self.batches)
+        except StopIteration:
+            self.batches = iter(self.loader)
+            try:
+                d = next(self.batches)
+            except StopIteration as error:
+                raise RuntimeError("the wrapped prior loader yielded no batches") from error
         sep = int(d["train_test_split_index"])
         x, y, target_y = d["x"], d["y"], d["target_y"]
         # the wrapped loader fixes its own batch size, so we only check the one we are given
@@ -160,15 +167,23 @@ class DumpPrior(Prior):
     def __init__(self, filename, device: torch.device = None, starting_index: int = 0):
         self.filename = filename
         with h5py.File(self.filename, "r") as f:
-            self.num_datapoints_max = f["X"].shape[0]
+            self.num_tables = f["X"].shape[0]
             self.max_num_classes = f["max_num_classes"][0] if "max_num_classes" in f else None
             self.problem_type = f["problem_type"][()].decode("utf-8")
             self.has_num_datapoints = "num_datapoints" in f
             self.stored_max_seq_len = f["X"].shape[1]
+            self.num_datapoints_max = self.stored_max_seq_len
         self.device = device if device is not None else get_default_device()
+        if not 0 <= starting_index < self.num_tables:
+            raise ValueError(f"starting_index must be between 0 and {self.num_tables - 1}, got {starting_index}")
         self.pointer = starting_index
 
     def batch(self, batch_size: int) -> Batch:
+        if not 0 < batch_size <= self.num_tables:
+            raise ValueError(f"batch_size must be between 1 and {self.num_tables}, got {batch_size}")
+        if self.pointer + batch_size > self.num_tables:
+            self.pointer = 0
+
         with h5py.File(self.filename, "r") as f:
             end = self.pointer + batch_size
             num_features = f["num_features"][self.pointer : end].max()
@@ -180,14 +195,14 @@ class DumpPrior(Prior):
             x = torch.from_numpy(f["X"][self.pointer : end, :max_seq_in_batch, :num_features])
             y = torch.from_numpy(f["y"][self.pointer : end, :max_seq_in_batch])
             key = "train_test_split_index" if "train_test_split_index" in f else "single_eval_pos"
-            sep = int(f[key][self.pointer : end][0])
+            splits = f[key][self.pointer : end]
+            if not np.all(splits == splits[0]):
+                raise ValueError("all tables in a DumpPrior batch must use the same train/test split")
+            sep = int(splits[0])
 
             self.pointer += batch_size
             if self.pointer >= f["X"].shape[0]:
-                print(
-                    """Finished iteration over all stored datasets! """
-                    """Will start reusing the same data with different splits now."""
-                )
+                print("Finished iteration over all stored datasets; reusing the same data.")
                 self.pointer = 0
 
         x = x.to(self.device)

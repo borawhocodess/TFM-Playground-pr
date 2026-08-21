@@ -98,6 +98,8 @@ class OpenMLEvaluationCallback(Callback):
             predictions = get_openml_predictions(model=wrapped, tasks=self.tasks)
             scores = [r2_score(y_true, y_pred) for y_true, y_pred, _ in predictions.values()]
             metric = "avg r2 score"
+        if not scores:
+            raise ValueError("OpenML evaluation found no compatible tasks within the configured limits")
         avg_score = sum(scores) / len(scores)
         print(
             f"epoch {epoch:5d} | time {epoch_time:5.2f}s | mean loss {loss:5.2f} | {metric} {avg_score:.3f}",

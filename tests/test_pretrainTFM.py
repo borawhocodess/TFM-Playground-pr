@@ -227,3 +227,41 @@ def test_pretrainTFM_regression_dump_infers_criterion(tmp_path):
     predictions = regressor.predict(rng.standard_normal((5, 3)))
     assert predictions.shape == (5,)
     assert np.isfinite(predictions).all()
+
+
+def test_prior_dataloader_forwards_the_problem():
+    """A get_batch function that takes a problem gets told which side it is sampling for."""
+    seen = []
+
+    def spy(batch_size, num_datapoints, num_features, problem="classification"):
+        seen.append(problem)
+        return get_classification_batch(batch_size, num_datapoints, num_features)
+
+    prior = PriorDataLoader(
+        get_batch_function=spy,
+        num_steps=2,
+        batch_size=2,
+        num_datapoints_max=16,
+        num_features=3,
+        device="cpu",
+        problem="regression",
+    )
+
+    assert prior.problem_type == "regression"
+    assert len(list(prior)) == 2
+    assert seen == ["regression", "regression"]
+
+
+def test_prior_dataloader_leaves_the_problem_out_when_unset():
+    """Batch functions that know nothing about problems keep working untouched."""
+    prior = PriorDataLoader(
+        get_batch_function=get_classification_batch,
+        num_steps=1,
+        batch_size=2,
+        num_datapoints_max=16,
+        num_features=3,
+        device="cpu",
+    )
+
+    assert prior.problem_type is None
+    assert prior.get_batch()["x"].shape == (2, 16, 3)

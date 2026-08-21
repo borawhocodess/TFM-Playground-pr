@@ -10,6 +10,8 @@ from tqdm import tqdm
 
 from tfmplayground.utils import get_default_device
 
+MAX_NUM_CLASSES = 10  # tabpfnv2 paper target generation subsection, natively limited to at most 10 classes
+
 
 class PriorDataLoader(DataLoader):
     """Generic DataLoader for synthetic data generation using a get_batch function.
@@ -21,6 +23,9 @@ class PriorDataLoader(DataLoader):
         num_datapoints_max (int): Max sequence length per function.
         num_features (int): Number of input features.
         device (torch.device): Device to move tensors to, defaults to the best available device.
+        problem (str): "classification" or "regression", forwarded to the get_batch function
+            as a keyword argument and reported as problem_type. Left out when None.
+        max_num_classes (int): Highest number of classes the get_batch function can produce.
     """
 
     def __init__(
@@ -31,6 +36,8 @@ class PriorDataLoader(DataLoader):
         num_datapoints_max: int,
         num_features: int,
         device: torch.device = None,
+        problem: str | None = None,
+        max_num_classes: int | None = None,
     ):
         self.get_batch_function = get_batch_function
         self.num_steps = num_steps
@@ -38,12 +45,15 @@ class PriorDataLoader(DataLoader):
         self.num_datapoints_max = num_datapoints_max
         self.num_features = num_features
         self.device = device if device is not None else get_default_device()
+        self.problem_type = problem
+        self.max_num_classes = max_num_classes
+
+    def get_batch(self) -> dict[str, torch.Tensor | int]:
+        problem = {} if self.problem_type is None else {"problem": self.problem_type}
+        return self.get_batch_function(self.batch_size, self.num_datapoints_max, self.num_features, **problem)
 
     def __iter__(self) -> Iterator[dict[str, torch.Tensor | int]]:
-        return iter(
-            self.get_batch_function(self.batch_size, self.num_datapoints_max, self.num_features)
-            for _ in range(self.num_steps)
-        )
+        return iter(self.get_batch() for _ in range(self.num_steps))
 
     def __len__(self) -> int:
         return self.num_steps
@@ -396,7 +406,9 @@ def target(x, kinds, problem):  # tabpfnv2 paper target generation subsection
     if problem == "regression":
         candidates = [j for j, kind in enumerate(kinds) if kind == "continuous"]
     else:
-        candidates = [j for j, kind in enumerate(kinds) if kind == "categorical" and len(x[:, j].unique()) <= 10]
+        candidates = [
+            j for j, kind in enumerate(kinds) if kind == "categorical" and len(x[:, j].unique()) <= MAX_NUM_CLASSES
+        ]
     if not candidates:
         return None, None, None
     j = int(np.random.choice(candidates))

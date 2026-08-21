@@ -164,9 +164,9 @@ class TabDPTModel(TabularFoundationModel):
         n_think = self.n_thinking_rows
 
         # preproces features by normalizing and clipping outliers
-        x_src = clip_outliers(x_src, -1 if self.training else eval_pos, n_sigma=self.clip_sigma)
-        x_src = normalize_data(x_src, -1 if self.training else eval_pos)
-        x_src = clip_outliers(x_src, -1 if self.training else eval_pos, n_sigma=self.clip_sigma)
+        x_src = clip_outliers(x_src, eval_pos, n_sigma=self.clip_sigma)
+        x_src = normalize_data(x_src, eval_pos)
+        x_src = clip_outliers(x_src, eval_pos, n_sigma=self.clip_sigma)
         # Replace NaN and Inf with 0 (inf can occur from division by zero in normalize_data)
         x_src = torch.nan_to_num(x_src, nan=0.0, posinf=0.0, neginf=0.0)
 

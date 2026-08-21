@@ -1,38 +1,73 @@
-"""Data loading utilities for tabular priors."""
+"""Priors, and the loader that streams batches off them."""
 
 from collections.abc import Callable, Iterator
 
 import h5py
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from tfmplayground.utils import get_default_device
 
 MAX_NUM_CLASSES = 10  # tabpfnv2 paper target generation subsection, natively limited to at most 10 classes
 
+Batch = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
 
-class PriorDataLoader(DataLoader):
-    """Generic DataLoader for synthetic data generation using a get_batch function.
+
+class Prior:
+    """
+    A prior samples synthetic tables and owns its own train/test split.
+
+    Every prior returns (X_train, y_train, X_test, y_test) from batch(). It says which side it
+    sits on through problem_type, and how many classes it can produce through max_num_classes,
+    so pretrainTFM can pick a criterion without knowing anything else about it.
+    """
+
+    problem_type: str | None = None
+    max_num_classes: int | None = None
+
+    def batch(self, batch_size: int) -> Batch:
+        raise NotImplementedError
+
+
+class PriorDataLoader:
+    """
+    Endless stream of batches off a prior. The caller decides how many to take.
 
     Args:
-        get_batch_function (Callable): A function returning batches of data.
-        num_steps (int): Number of batches per epoch.
-        batch_size (int): Number of functions per batch.
-        num_datapoints_max (int): Max sequence length per function.
-        num_features (int): Number of input features.
-        device (torch.device): Device to move tensors to, defaults to the best available device.
-        problem (str): "classification" or "regression", forwarded to the get_batch function
-            as a keyword argument and reported as problem_type. Left out when None.
-        max_num_classes (int): Highest number of classes the get_batch function can produce.
+        prior (Prior): the prior to sample from.
+        batch_size (int): number of tables per batch.
+    """
+
+    def __init__(self, prior: Prior, batch_size: int):
+        self.prior = prior
+        self.batch_size = batch_size
+
+    def __iter__(self) -> Iterator[Batch]:
+        while True:
+            yield self.prior.batch(self.batch_size)
+
+
+class FunctionPrior(Prior):
+    """
+    Prior backed by your own get_batch function.
+
+    The function is called as get_batch_function(batch_size, num_datapoints_max, num_features)
+    and must return (X_train, y_train, X_test, y_test). When problem is set it is passed on as
+    a keyword argument, so functions that know nothing about problems keep working.
+
+    Args:
+        get_batch_function (Callable): a function returning batches of data.
+        num_datapoints_max (int): max sequence length per table.
+        num_features (int): number of input features.
+        device (torch.device): device the batches end up on, defaults to the best available one.
+        problem (str): "classification" or "regression", reported as problem_type.
+        max_num_classes (int): highest number of classes the function can produce.
     """
 
     def __init__(
         self,
-        get_batch_function: Callable[..., dict[str, torch.Tensor | int]],
-        num_steps: int,
-        batch_size: int,
+        get_batch_function: Callable[..., Batch],
         num_datapoints_max: int,
         num_features: int,
         device: torch.device = None,
@@ -40,91 +75,135 @@ class PriorDataLoader(DataLoader):
         max_num_classes: int | None = None,
     ):
         self.get_batch_function = get_batch_function
-        self.num_steps = num_steps
-        self.batch_size = batch_size
         self.num_datapoints_max = num_datapoints_max
         self.num_features = num_features
         self.device = device if device is not None else get_default_device()
         self.problem_type = problem
         self.max_num_classes = max_num_classes
 
-    def get_batch(self) -> dict[str, torch.Tensor | int]:
+    def batch(self, batch_size: int) -> Batch:
         problem = {} if self.problem_type is None else {"problem": self.problem_type}
-        return self.get_batch_function(self.batch_size, self.num_datapoints_max, self.num_features, **problem)
-
-    def __iter__(self) -> Iterator[dict[str, torch.Tensor | int]]:
-        return iter(self.get_batch() for _ in range(self.num_steps))
-
-    def __len__(self) -> int:
-        return self.num_steps
+        return self.get_batch_function(batch_size, self.num_datapoints_max, self.num_features, **problem)
 
 
-class PriorDumpDataLoader(DataLoader):
-    """DataLoader that loads synthetic prior data from an HDF5 dump.
+class SCMPrior(Prior):
+    """
+    Our own structural causal model prior, sampled on the fly, nothing to download.
 
     Args:
-        filename (str): Path to the HDF5 file.
-        num_steps (int): Number of batches per epoch.
-        batch_size (int): Batch size.
-        device (torch.device): Device to load tensors onto, defaults to the best available device.
+        num_datapoints_max (int): max sequence length per table, at least 129.
+        num_features (int): number of input features.
+        problem (str): "classification" or "regression".
+        device (torch.device): device the batches end up on, defaults to the best available one.
     """
 
-    def __init__(self, filename, num_steps, batch_size, device=None, starting_index=0):
+    def __init__(
+        self,
+        num_datapoints_max: int = 160,
+        num_features: int = 8,
+        problem: str = "classification",
+        device: torch.device = None,
+    ):
+        self.num_datapoints_max = num_datapoints_max
+        self.num_features = num_features
+        self.device = device if device is not None else get_default_device()
+        self.problem_type = problem
+        self.max_num_classes = MAX_NUM_CLASSES if problem == "classification" else None
+
+    def batch(self, batch_size: int) -> Batch:
+        return get_batch(batch_size, self.num_datapoints_max, self.num_features, problem=self.problem_type)
+
+
+class DictPrior(Prior):
+    """
+    Adapts a dataloader that yields dicts of x, y, target_y and train_test_split_index.
+
+    The external prior wrappers speak that older shape, because the libraries behind them do.
+    This keeps them usable without a rewrite. Only the halves the training loop reads survive
+    the conversion: the train half of y and the test half of target_y.
+
+    Args:
+        loader: any iterable yielding the dict shape.
+        problem (str): "classification" or "regression", read off the loader when not given.
+        max_num_classes (int): highest number of classes, read off the loader when not given.
+    """
+
+    def __init__(self, loader, problem: str | None = None, max_num_classes: int | None = None):
+        self.loader = loader
+        self.batches = iter(loader)
+        self.problem_type = problem if problem is not None else getattr(loader, "problem_type", None)
+        self.max_num_classes = (
+            max_num_classes if max_num_classes is not None else getattr(loader, "max_num_classes", None)
+        )
+
+    def batch(self, batch_size: int | None = None) -> Batch:
+        d = next(self.batches)
+        sep = int(d["train_test_split_index"])
+        x, y, target_y = d["x"], d["y"], d["target_y"]
+        # the wrapped loader fixes its own batch size, so we only check the one we are given
+        assert batch_size is None or x.shape[0] == batch_size, (
+            f"the wrapped loader gave {x.shape[0]} tables, not {batch_size}"
+        )
+        return x[:, :sep], y[:, :sep], x[:, sep:], target_y[:, sep:]
+
+
+class DumpPrior(Prior):
+    """
+    Prior that reads batches out of an HDF5 dump, and starts over when it runs out.
+
+    Args:
+        filename (str): path to the HDF5 file.
+        device (torch.device): device the batches end up on, defaults to the best available one.
+        starting_index (int): table to read first.
+    """
+
+    def __init__(self, filename, device: torch.device = None, starting_index: int = 0):
         self.filename = filename
-        self.num_steps = num_steps
-        self.batch_size = batch_size
         with h5py.File(self.filename, "r") as f:
             self.num_datapoints_max = f["X"].shape[0]
-            if "max_num_classes" in f:
-                self.max_num_classes = f["max_num_classes"][0]
-            else:
-                self.max_num_classes = None
+            self.max_num_classes = f["max_num_classes"][0] if "max_num_classes" in f else None
             self.problem_type = f["problem_type"][()].decode("utf-8")
             self.has_num_datapoints = "num_datapoints" in f
             self.stored_max_seq_len = f["X"].shape[1]
         self.device = device if device is not None else get_default_device()
         self.pointer = starting_index
 
-    def __iter__(self):
+    def batch(self, batch_size: int) -> Batch:
         with h5py.File(self.filename, "r") as f:
-            for _ in range(self.num_steps):
-                end = self.pointer + self.batch_size
+            end = self.pointer + batch_size
+            num_features = f["num_features"][self.pointer : end].max()
+            if self.has_num_datapoints:
+                max_seq_in_batch = int(f["num_datapoints"][self.pointer : end].max())
+            else:
+                max_seq_in_batch = int(self.stored_max_seq_len)
 
-                num_features = f["num_features"][self.pointer : end].max()
-                if self.has_num_datapoints:
-                    num_datapoints_batch = f["num_datapoints"][self.pointer : end]
-                    max_seq_in_batch = int(num_datapoints_batch.max())
-                else:
-                    max_seq_in_batch = int(self.stored_max_seq_len)
+            x = torch.from_numpy(f["X"][self.pointer : end, :max_seq_in_batch, :num_features])
+            y = torch.from_numpy(f["y"][self.pointer : end, :max_seq_in_batch])
+            key = "train_test_split_index" if "train_test_split_index" in f else "single_eval_pos"
+            sep = int(f[key][self.pointer : end][0])
 
-                x = torch.from_numpy(f["X"][self.pointer : end, :max_seq_in_batch, :num_features])
-                y = torch.from_numpy(f["y"][self.pointer : end, :max_seq_in_batch])
-                if "train_test_split_index" in f:
-                    train_test_split_index = f["train_test_split_index"][self.pointer : end]
-                else:
-                    train_test_split_index = f["single_eval_pos"][self.pointer : end]
-
-                self.pointer += self.batch_size
-                if self.pointer >= f["X"].shape[0]:
-                    print(
-                        """Finished iteration over all stored datasets! """
-                        """Will start reusing the same data with different splits now."""
-                    )
-                    self.pointer = 0
-
-                yield dict(
-                    x=x.to(self.device),
-                    y=y.to(self.device),
-                    target_y=y.to(self.device),  # target_y is identical to y (for downstream compatibility)
-                    train_test_split_index=train_test_split_index[0].item(),
+            self.pointer += batch_size
+            if self.pointer >= f["X"].shape[0]:
+                print(
+                    """Finished iteration over all stored datasets! """
+                    """Will start reusing the same data with different splits now."""
                 )
+                self.pointer = 0
 
-    def __len__(self):
-        return self.num_steps
+        x = x.to(self.device)
+        y = y.to(self.device)
+        return x[:, :sep], y[:, :sep], x[:, sep:], y[:, sep:]
 
 
 def dump_prior_to_h5(
-    prior, max_classes: int, batch_size: int, save_path: str, problem_type: str, max_seq_len: int, max_features: int
+    prior,
+    num_batches: int,
+    max_classes: int,
+    batch_size: int,
+    save_path: str,
+    problem_type: str,
+    max_seq_len: int,
+    max_features: int,
 ):
     """Dumps synthetic prior data into an HDF5 file for later training."""
 
@@ -154,12 +233,11 @@ def dump_prior_to_h5(
         f.create_dataset("original_batch_size", data=np.array((batch_size,)), chunks=(1,))
         f.create_dataset("problem_type", data=problem_type, dtype=h5py.string_dtype())
 
-        for e in tqdm(prior):
-            x = e["x"].to("cpu").numpy()
-            y = e["y"].to("cpu").numpy()
-            train_test_split_index = e["train_test_split_index"]
-            if isinstance(train_test_split_index, torch.Tensor):
-                train_test_split_index = train_test_split_index.item()
+        for _ in tqdm(range(num_batches)):
+            x_train, y_train, x_test, y_test = prior.batch(batch_size)
+            train_test_split_index = x_train.shape[1]
+            x = torch.cat([x_train, x_test], dim=1).to("cpu").numpy()
+            y = torch.cat([y_train, y_test], dim=1).to("cpu").numpy()
 
             # pad x and y to the maximum sequence length and number of features needed for tabicl
             x_padded = np.pad(
@@ -384,7 +462,9 @@ def get_batch(batch_size, num_datapoints_max, num_features, problem="classificat
             else:
                 break
         if len(xs) == batch_size:
-            return dict(x=torch.stack(xs), y=torch.stack(ys), target_y=torch.stack(ys), train_test_split_index=rows)
+            x = torch.stack(xs)
+            y = torch.stack(ys)
+            return x[:, :rows], y[:, :rows], x[:, rows:], y[:, rows:]
 
 
 def postprocess(x, kinds):  # tabpfnv2 paper post-processing subsection

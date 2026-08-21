@@ -39,7 +39,7 @@ from tfmplayground.prior import get_batch
 batch = get_batch(batch_size=4, num_datapoints_max=160, num_features=8, problem="regression")
 ```
 
-Each batch is a dict of `x`, `y`, `target_y` and `train_test_split_index`, which is the contract every prior in this repository follows. Classification targets are limited to ten classes, matching the paper.
+Each batch is `(X_train, y_train, X_test, y_test)`, which is the contract every prior in this repository follows: the prior owns its own split, so nothing downstream has to slice. Classification targets are limited to ten classes, matching the paper.
 
 The trained model plugs straight into our scikit-learn like interface:
 
@@ -71,7 +71,7 @@ Every part of the call can be replaced:
 from tfmplayground import pretrainTFM
 from tfmplayground.evaluation import TOY_TASKS_CLASSIFICATION, OpenMLEvaluationCallback
 from tfmplayground.models import NanoTabPFNModel
-from tfmplayground.prior import PriorDumpDataLoader
+from tfmplayground.prior import DumpPrior
 from tfmplayground.train import DUMP_URLS
 from tfmplayground.utils import fetch_dump
 
@@ -83,19 +83,21 @@ model = pretrainTFM(
         num_layers=6,
         num_outputs=10,
     ),
-    prior=PriorDumpDataLoader(fetch_dump(DUMP_URLS["classification"]), num_steps=25, batch_size=50),
+    prior=DumpPrior(fetch_dump(DUMP_URLS["classification"])),
     eval=OpenMLEvaluationCallback(TOY_TASKS_CLASSIFICATION),
     epochs=80,
+    steps_per_epoch=25,
+    batch_size=50,
 )
 ```
 
-`model` takes any architecture from `tfmplayground/models/`, they all share the same forward contract. `prior` takes any of our dataloaders, `eval` takes a callback or list of callbacks run at the end of each epoch. The loss criterion is inferred from the prior (cross entropy for classification, a bar distribution fitted on its targets for regression) unless you pass one via `criterion`.
+`model` takes any architecture from `tfmplayground/models/`, they all share the same forward contract. `prior` takes any of our priors, `eval` takes a callback or list of callbacks run at the end of each epoch. `epochs` and `steps_per_epoch` decide how much you sample, because a prior is an endless source and has no length of its own. The loss criterion is inferred from the prior (cross entropy for classification, a bar distribution fitted on its targets for regression) unless you pass one via `criterion`.
 
 The example above pretrains on [100k pre-generated classification datasets](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_3_100k_classification.h5) with 50 datapoints and 3 features each, downloaded on first use. For regression we offer a pre-generated dataset containing 1.28M tables with 50 datapoints and 3 features each [here](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_1280k_regression.h5).
 
 ### Our Code
 
-`tfmplayground/models/` contains the architectures, each implemented in a single file. `tfmplayground/train.py` implements `pretrainTFM` and a simple training loop, `tfmplayground/prior.py` holds our own prior and the dataloaders, including one for loading HDF5 dumps, and `tfmplayground/external_priors/` provides an interface to publicly available priors from other repositories.
+`tfmplayground/models/` contains the architectures, each implemented in a single file. `tfmplayground/train.py` implements `pretrainTFM` and a simple training loop, `tfmplayground/prior.py` holds our own prior, the priors that wrap other sources including HDF5 dumps, and the loader that streams batches off any of them, and `tfmplayground/external_priors/` provides an interface to publicly available priors from other repositories.
 We will release multiple dumps of different scales soon. We also offer an interface where you can provide your own get\_batch function.
 
 ### Creating your own datasets
@@ -112,23 +114,29 @@ python -m tfmplayground.external_priors --lib tabicl \
 ```
 which can afterwards be loaded via
 ```python
-from tfmplayground.prior import PriorDumpDataLoader
-prior = PriorDumpDataLoader('tabicl_4k_50x3.h5', num_steps=20, batch_size=4)
+from tfmplayground.prior import DumpPrior
+prior = DumpPrior('tabicl_4k_50x3.h5')
 ```
 You can also just let it create the data on-the-fly via:
 ```python
 from tfmplayground.external_priors import TabICLPriorDataLoader
-prior = TabICLPriorDataLoader(
-    num_steps=20,
-    batch_size=4,
-    num_datapoints_min=50,
-    num_datapoints_max=50,
-    min_features=3,
-    max_features=3,
+from tfmplayground.prior import DictPrior
+
+prior = DictPrior(
+    TabICLPriorDataLoader(
+        num_steps=20,
+        batch_size=4,
+        num_datapoints_min=50,
+        num_datapoints_max=50,
+        min_features=3,
+        max_features=3,
+        max_num_classes=3,
+    ),
+    problem="classification",
     max_num_classes=3,
 )
 ```
-You can check out `next(iter(prior))` if you want to see an example batch.
+The external wrappers still speak the older dict shape, because the libraries behind them do. `DictPrior` converts them. You can check out `prior.batch(4)` if you want to see an example batch.
 
 Check out `prior_visualization.ipynb` for some more examples.
 

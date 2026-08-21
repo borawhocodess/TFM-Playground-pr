@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from tfmplayground import pretrainTFM
-from tfmplayground.prior import PriorDataLoader
+from tfmplayground.prior import FunctionPrior
 from tfmplayground.models import (
     ModdedNanoTabPFNModel,
     NanoTabICLv2,
@@ -89,7 +89,8 @@ def test_forward_follows_base_contract(make_model):
 def get_three_class_batch(batch_size, num_datapoints, num_features):
     x = torch.randn(batch_size, num_datapoints, num_features)
     y = (x[:, :, 0] > 0).float() + (x[:, :, 1] > 0).float()
-    return dict(x=x, y=y, target_y=y, train_test_split_index=num_datapoints // 2)
+    sep = num_datapoints // 2
+    return x[:, :sep], y[:, :sep], x[:, sep:], y[:, sep:]
 
 
 @pytest.mark.parametrize(
@@ -100,10 +101,8 @@ def get_three_class_batch(batch_size, num_datapoints, num_features):
 def test_pretrainTFM_swaps_any_model(make_model):
     """Every model drops into pretrainTFM as-is and comes back trained."""
     torch.manual_seed(0)
-    prior = PriorDataLoader(
+    prior = FunctionPrior(
         get_batch_function=get_three_class_batch,
-        num_steps=2,
-        batch_size=2,
         num_datapoints_max=16,
         num_features=4,
         device="cpu",
@@ -114,6 +113,8 @@ def test_pretrainTFM_swaps_any_model(make_model):
         eval=[],
         criterion=nn.CrossEntropyLoss(),
         epochs=1,
+        steps_per_epoch=2,
+        batch_size=2,
         device="cpu",
     )
 

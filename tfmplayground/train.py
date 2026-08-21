@@ -4,10 +4,10 @@ import schedulefree
 import torch
 from pfns.bar_distribution import FullSupportBarDistribution
 from torch import nn
-from torch.utils.data import DataLoader
 
 from tfmplayground.callbacks import Callback, ConsoleLoggerCallback
 from tfmplayground.models import NanoTabPFNModel, TabularFoundationModel
+from tfmplayground.prior import Prior, PriorDataLoader
 from tfmplayground.utils import QuantileLoss, get_default_device, make_global_bucket_edges
 
 PROBLEMS = ("classification", "regression")
@@ -20,12 +20,14 @@ DUMP_URLS = {
 
 def pretrainTFM(
     model: TabularFoundationModel | None = None,
-    prior: DataLoader | None = None,
+    prior: Prior | None = None,
     eval: Callback | list[Callback] | None = None,
     regime=None,
     problem: str | None = None,
     criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss | None = None,
     epochs: int = 100,
+    steps_per_epoch: int = 25,
+    batch_size: int = 4,
     accumulate_gradients: int = 1,
     lr: float = 1e-4,
     device: torch.device = None,
@@ -37,8 +39,8 @@ def pretrainTFM(
     Args:
         model: (TabularFoundationModel) any model implementing the base forward contract,
             defaults to a nanotabpfn with a 10 class head (100 buckets for regression)
-        prior: (DataLoader) torch-compatible dataloader providing the pretraining data,
-            defaults to the 100k classification dump, downloaded on first use
+        prior: (Prior) the prior to pretrain on, sampled batch by batch,
+            defaults to our own structural causal model prior, nothing to download
         eval: a callback or list of callbacks run at the end of each epoch,
             defaults to logging the loss to the console
         regime: reserved for training regimes, not implemented yet
@@ -47,6 +49,8 @@ def pretrainTFM(
         criterion: our loss criterion, inferred from the prior and model if not given,
             must sit on the same side as the problem
         epochs: (int) the number of epochs we train for
+        steps_per_epoch: (int) the number of batches that make up an epoch
+        batch_size: (int) the number of tables per batch
         accumulate_gradients: (int) the number of gradients to accumulate before updating the weights
         lr: (float) the learning rate
         device: (torch.device) the device we are using
@@ -111,6 +115,8 @@ def pretrainTFM(
         prior=prior,
         criterion=criterion,
         epochs=epochs,
+        steps_per_epoch=steps_per_epoch,
+        batch_size=batch_size,
         accumulate_gradients=accumulate_gradients,
         lr=lr,
         device=device,
@@ -122,20 +128,11 @@ def pretrainTFM(
     return trained_model
 
 
-def default_prior(device: torch.device, problem: str) -> DataLoader:
-    """Wraps our own structural causal model prior, sampled on the fly, nothing to download."""
-    from tfmplayground.prior import MAX_NUM_CLASSES, PriorDataLoader, get_batch
+def default_prior(device: torch.device, problem: str) -> Prior:
+    """Our own structural causal model prior, sampled on the fly, nothing to download."""
+    from tfmplayground.prior import SCMPrior
 
-    return PriorDataLoader(
-        get_batch_function=get_batch,
-        num_steps=25,
-        batch_size=4,
-        num_datapoints_max=160,
-        num_features=8,
-        device=device,
-        problem=problem,
-        max_num_classes=MAX_NUM_CLASSES if problem == "classification" else None,
-    )
+    return SCMPrior(num_datapoints_max=160, num_features=8, problem=problem, device=device)
 
 
 def default_model(problem: str | None) -> TabularFoundationModel:
@@ -150,18 +147,18 @@ def default_model(problem: str | None) -> TabularFoundationModel:
 
 
 def infer_criterion(
-    model: TabularFoundationModel, prior: DataLoader, device: torch.device, problem: str | None = None
+    model: TabularFoundationModel, prior: Prior, device: torch.device, problem: str | None = None
 ) -> nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss:
     """
     Picks a loss criterion based on the problem or what the prior provides: cross entropy for classification,
-    a bar distribution fitted on the dump for regression dumps and a quantile loss otherwise.
+    a bar distribution fitted on the targets of a regression prior and a quantile loss otherwise.
     The number of model outputs is probed with a tiny forward pass.
     """
     problem = problem or getattr(prior, "problem_type", None)
     if problem == "classification" or (problem is None and getattr(prior, "max_num_classes", None)):
         return nn.CrossEntropyLoss()
     num_outputs = infer_num_outputs(model)
-    if getattr(prior, "filename", None) is not None or getattr(prior, "problem_type", None) == "regression":
+    if problem == "regression" or getattr(prior, "filename", None) is not None:
         return FullSupportBarDistribution(make_global_bucket_edges(prior, n_buckets=num_outputs, device=device))
     return QuantileLoss(num_outputs)
 
@@ -182,9 +179,11 @@ def infer_num_outputs(model: TabularFoundationModel) -> int:
 
 def train(
     model: TabularFoundationModel,
-    prior: DataLoader,
+    prior: Prior,
     criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss,
     epochs: int,
+    steps_per_epoch: int = 25,
+    batch_size: int = 4,
     accumulate_gradients: int = 1,
     lr: float = 1e-4,
     device: torch.device = None,
@@ -196,10 +195,11 @@ def train(
 
     Args:
         model: (TabularFoundationModel) our PyTorch model
-        prior: (DataLoader) torch-compatible dataloader
+        prior: (Prior) the prior we sample our pretraining batches from
         criterion: (nn.CrossEntropyLoss | FullSupportBarDistribution) our loss criterion
-        epochs: (int) the number of epochs we train for,
-            the number of steps that constitute an epoch are decided by the prior
+        epochs: (int) the number of epochs we train for
+        steps_per_epoch: (int) the number of batches that make up an epoch
+        batch_size: (int) the number of tables per batch
         accumulate_gradients: (int) the number of gradients to accumulate before updating the weights
         device: (torch.device) the device we are using
         callbacks: A list of callback instances to execute at the end of each epoch. These can be used for
@@ -219,7 +219,9 @@ def train(
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
 
-    assert prior.num_steps % accumulate_gradients == 0, "num_steps must be divisible by accumulate_gradients"
+    assert steps_per_epoch % accumulate_gradients == 0, "steps_per_epoch must be divisible by accumulate_gradients"
+
+    batches = iter(PriorDataLoader(prior, batch_size))
 
     try:
         for epoch in range(1, epochs + 1):
@@ -227,23 +229,22 @@ def train(
             model.train()  # Turn on the train mode
             optimizer.train()
             total_loss = 0.0
-            for i, full_data in enumerate(prior):
-                train_test_split_index = full_data["train_test_split_index"]
-                x = full_data["x"].to(device)
-                y_train = full_data["y"][:, :train_test_split_index].to(device)
-                if torch.isnan(x).any() or torch.isnan(y_train).any():
+            for i in range(steps_per_epoch):
+                x_train, y_train, x_test, targets = next(batches)
+                x_train = x_train.to(device)
+                y_train = y_train.to(device)
+                x_test = x_test.to(device)
+                targets = targets.to(device)
+                if torch.isnan(x_train).any() or torch.isnan(x_test).any() or torch.isnan(y_train).any():
                     continue
-                targets = full_data["target_y"].to(device)
 
                 if regression_task:
                     y_mean = y_train.mean(dim=1, keepdim=True)
                     y_std = y_train.std(dim=1, keepdim=True) + 1e-8
                     y_train = (y_train - y_mean) / y_std
-
-                output = model(x[:, :train_test_split_index], y_train, x[:, train_test_split_index:])
-                targets = targets[:, train_test_split_index:]
-                if regression_task:
                     targets = (targets - y_mean) / y_std
+
+                output = model(x_train, y_train, x_test)
                 if classification_task:
                     targets = targets.reshape((-1,)).to(torch.long)
                     output = output.view(-1, output.shape[-1])
@@ -259,7 +260,7 @@ def train(
                     optimizer.zero_grad()
 
             end_time = time.time()
-            mean_loss = total_loss / len(prior)
+            mean_loss = total_loss / steps_per_epoch
             model.eval()
             optimizer.eval()
 

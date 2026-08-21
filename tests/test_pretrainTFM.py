@@ -7,7 +7,7 @@ from torch import nn
 
 from tfmplayground import TabularClassifier, TabularRegressor, pretrainTFM
 from tfmplayground.evaluation import TOY_TASKS_REGRESSION, OpenMLEvaluationCallback
-from tfmplayground.prior import MAX_NUM_CLASSES, PriorDataLoader, PriorDumpDataLoader, get_batch
+from tfmplayground.prior import MAX_NUM_CLASSES, DumpPrior, FunctionPrior, SCMPrior
 from tfmplayground.models import NanoTabPFNModel
 from tfmplayground.train import default_prior, infer_criterion, infer_num_outputs
 from tfmplayground.utils import QuantileLoss, fetch_dump, make_global_bucket_edges
@@ -26,7 +26,8 @@ def make_tiny_model(num_outputs):
 def get_classification_batch(batch_size, num_datapoints, num_features):
     x = torch.randn(batch_size, num_datapoints, num_features)
     y = (x.sum(dim=-1) > 0).float()
-    return dict(x=x, y=y, target_y=y, train_test_split_index=num_datapoints // 2)
+    sep = num_datapoints // 2
+    return x[:, :sep], y[:, :sep], x[:, sep:], y[:, sep:]
 
 
 def make_regression_dump(path, num_tables=8, num_datapoints=16, num_features=3):
@@ -59,10 +60,8 @@ def make_classification_dump(path, num_tables=8, num_datapoints=16, num_features
 def test_pretrainTFM_classification_returns_usable_model():
     """One call with a model and a prior gives back a model that plugs into the classifier interface."""
     torch.manual_seed(0)
-    prior = PriorDataLoader(
+    prior = FunctionPrior(
         get_batch_function=get_classification_batch,
-        num_steps=2,
-        batch_size=4,
         num_datapoints_max=16,
         num_features=3,
         device="cpu",
@@ -73,6 +72,8 @@ def test_pretrainTFM_classification_returns_usable_model():
         eval=[],
         criterion=nn.CrossEntropyLoss(),
         epochs=2,
+        steps_per_epoch=2,
+        batch_size=4,
         device="cpu",
     )
 
@@ -89,9 +90,9 @@ def test_pretrainTFM_default_model_head_is_fixed(tmp_path):
     torch.manual_seed(0)
     dump = tmp_path / "tiny_classification.h5"
     make_classification_dump(dump)
-    prior = PriorDumpDataLoader(filename=str(dump), num_steps=2, batch_size=4)
+    prior = DumpPrior(filename=str(dump))
 
-    trained = pretrainTFM(prior=prior, eval=[], epochs=1, device="cpu")
+    trained = pretrainTFM(prior=prior, eval=[], epochs=1, steps_per_epoch=2, batch_size=4, device="cpu")
 
     assert infer_num_outputs(trained) == 10
 
@@ -99,10 +100,8 @@ def test_pretrainTFM_default_model_head_is_fixed(tmp_path):
 def test_problem_flag_forces_classification():
     """An in-memory prior carries no problem_type, the flag picks cross entropy where inference guesses quantiles."""
     torch.manual_seed(0)
-    prior = PriorDataLoader(
+    prior = FunctionPrior(
         get_batch_function=get_classification_batch,
-        num_steps=2,
-        batch_size=4,
         num_datapoints_max=16,
         num_features=3,
         device="cpu",
@@ -112,7 +111,16 @@ def test_problem_flag_forces_classification():
     assert isinstance(infer_criterion(model, prior, "cpu"), QuantileLoss)
     assert isinstance(infer_criterion(model, prior, "cpu", problem="classification"), nn.CrossEntropyLoss)
 
-    trained = pretrainTFM(model=model, prior=prior, eval=[], problem="classification", epochs=1, device="cpu")
+    trained = pretrainTFM(
+        model=model,
+        prior=prior,
+        eval=[],
+        problem="classification",
+        epochs=1,
+        steps_per_epoch=2,
+        batch_size=4,
+        device="cpu",
+    )
     with torch.no_grad():
         out = trained(torch.randn(1, 8, 3), torch.randint(0, 2, (1, 8)).float(), torch.randn(1, 4, 3))
     assert torch.isfinite(out).all()
@@ -121,7 +129,7 @@ def test_problem_flag_forces_classification():
 def test_problem_flag_contradicting_prior_raises(tmp_path):
     dump = tmp_path / "tiny_classification.h5"
     make_classification_dump(dump)
-    prior = PriorDumpDataLoader(filename=str(dump), num_steps=2, batch_size=4, device="cpu")
+    prior = DumpPrior(filename=str(dump), device="cpu")
 
     with pytest.raises(ValueError, match="the prior says"):
         pretrainTFM(prior=prior, problem="regression", device="cpu")
@@ -136,8 +144,8 @@ def test_criterion_contradicting_problem_raises(tmp_path):
     """A criterion declares a side, starting a run where it disagrees with the prior or flag refuses loudly."""
     make_classification_dump(tmp_path / "cls.h5")
     make_regression_dump(tmp_path / "reg.h5")
-    cls_prior = PriorDumpDataLoader(filename=str(tmp_path / "cls.h5"), num_steps=2, batch_size=4, device="cpu")
-    reg_prior = PriorDumpDataLoader(filename=str(tmp_path / "reg.h5"), num_steps=2, batch_size=4, device="cpu")
+    cls_prior = DumpPrior(filename=str(tmp_path / "cls.h5"), device="cpu")
+    reg_prior = DumpPrior(filename=str(tmp_path / "reg.h5"), device="cpu")
     model = make_tiny_model(num_outputs=3)
 
     with pytest.raises(ValueError, match="is for classification"):
@@ -149,10 +157,8 @@ def test_criterion_contradicting_problem_raises(tmp_path):
             model=model, prior=cls_prior, criterion=FullSupportBarDistribution(torch.linspace(-3, 3, 4)), device="cpu"
         )
 
-    in_memory = PriorDataLoader(
+    in_memory = FunctionPrior(
         get_batch_function=get_classification_batch,
-        num_steps=2,
-        batch_size=4,
         num_datapoints_max=16,
         num_features=3,
         device="cpu",
@@ -164,7 +170,7 @@ def test_criterion_contradicting_problem_raises(tmp_path):
 def test_eval_direction_contradicting_problem_raises(tmp_path):
     """A directional eval callback pointed the wrong way fails before training instead of after an epoch."""
     make_classification_dump(tmp_path / "cls.h5")
-    prior = PriorDumpDataLoader(filename=str(tmp_path / "cls.h5"), num_steps=2, batch_size=4, device="cpu")
+    prior = DumpPrior(filename=str(tmp_path / "cls.h5"), device="cpu")
 
     with pytest.raises(ValueError, match="set up for regression"):
         pretrainTFM(
@@ -177,7 +183,7 @@ def test_eval_direction_contradicting_problem_raises(tmp_path):
 def test_model_head_contradicting_criterion_raises(tmp_path):
     """An explicit regression criterion must have exactly as many buckets or quantiles as the model has outputs."""
     make_regression_dump(tmp_path / "reg.h5")
-    prior = PriorDumpDataLoader(filename=str(tmp_path / "reg.h5"), num_steps=2, batch_size=4, device="cpu")
+    prior = DumpPrior(filename=str(tmp_path / "reg.h5"), device="cpu")
 
     with pytest.raises(ValueError, match="100 buckets but the model has 8"):
         pretrainTFM(
@@ -193,7 +199,7 @@ def test_model_head_contradicting_criterion_raises(tmp_path):
 def test_model_head_contradicting_prior_classes_raises(tmp_path):
     """A prior with more classes than the model has outputs would crash mid-training, refuse upfront instead."""
     make_classification_dump(tmp_path / "cls15.h5", max_num_classes=15)
-    prior = PriorDumpDataLoader(filename=str(tmp_path / "cls15.h5"), num_steps=2, batch_size=4, device="cpu")
+    prior = DumpPrior(filename=str(tmp_path / "cls15.h5"), device="cpu")
 
     with pytest.raises(ValueError, match="15 classes but the model has 3"):
         pretrainTFM(model=make_tiny_model(num_outputs=3), prior=prior, device="cpu")
@@ -211,14 +217,14 @@ def test_pretrainTFM_regression_dump_infers_criterion(tmp_path):
     torch.manual_seed(0)
     dump = tmp_path / "tiny_regression.h5"
     make_regression_dump(dump)
-    prior = PriorDumpDataLoader(filename=str(dump), num_steps=2, batch_size=4, device="cpu")
+    prior = DumpPrior(filename=str(dump), device="cpu")
 
     model = make_tiny_model(num_outputs=8)
     criterion = infer_criterion(model, prior, device="cpu")
     assert criterion.borders.shape == (9,)
     assert torch.equal(criterion.borders, make_global_bucket_edges(prior, n_buckets=8, device="cpu"))
 
-    trained = pretrainTFM(model=model, prior=prior, eval=[], epochs=2, device="cpu")
+    trained = pretrainTFM(model=model, prior=prior, eval=[], epochs=2, steps_per_epoch=2, batch_size=4, device="cpu")
     assert trained.dist.borders.shape == (9,)
 
     regressor = TabularRegressor(trained, device="cpu")
@@ -229,7 +235,7 @@ def test_pretrainTFM_regression_dump_infers_criterion(tmp_path):
     assert np.isfinite(predictions).all()
 
 
-def test_prior_dataloader_forwards_the_problem():
+def test_function_prior_forwards_the_problem():
     """A get_batch function that takes a problem gets told which side it is sampling for."""
     seen = []
 
@@ -237,10 +243,8 @@ def test_prior_dataloader_forwards_the_problem():
         seen.append(problem)
         return get_classification_batch(batch_size, num_datapoints, num_features)
 
-    prior = PriorDataLoader(
+    prior = FunctionPrior(
         get_batch_function=spy,
-        num_steps=2,
-        batch_size=2,
         num_datapoints_max=16,
         num_features=3,
         device="cpu",
@@ -248,40 +252,35 @@ def test_prior_dataloader_forwards_the_problem():
     )
 
     assert prior.problem_type == "regression"
-    assert len(list(prior)) == 2
+    prior.batch(2)
+    prior.batch(2)
     assert seen == ["regression", "regression"]
 
 
-def test_prior_dataloader_leaves_the_problem_out_when_unset():
+def test_function_prior_leaves_the_problem_out_when_unset():
     """Batch functions that know nothing about problems keep working untouched."""
-    prior = PriorDataLoader(
+    prior = FunctionPrior(
         get_batch_function=get_classification_batch,
-        num_steps=1,
-        batch_size=2,
         num_datapoints_max=16,
         num_features=3,
         device="cpu",
     )
 
     assert prior.problem_type is None
-    assert prior.get_batch()["x"].shape == (2, 16, 3)
+    x_train, y_train, x_test, y_test = prior.batch(2)
+    assert x_train.shape == (2, 8, 3)
+    assert x_test.shape == (2, 8, 3)
 
 
-def make_scm_regression_prior(num_steps=2, batch_size=2):
-    return PriorDataLoader(
-        get_batch_function=get_batch,
-        num_steps=num_steps,
-        batch_size=batch_size,
-        num_datapoints_max=160,
-        num_features=4,
-        device="cpu",
-        problem="regression",
-    )
+def make_scm_regression_prior():
+    return SCMPrior(num_datapoints_max=160, num_features=4, problem="regression", device="cpu")
 
 
 def test_bucket_edges_fit_on_a_prior_with_no_dump_behind_it():
     """Bucket edges come off sampled batches when there is no file to read them from."""
-    edges = make_global_bucket_edges(make_scm_regression_prior(), n_buckets=8, device="cpu")
+    edges = make_global_bucket_edges(
+        make_scm_regression_prior(), n_buckets=8, device="cpu", batch_size=2, max_batches=2
+    )
 
     assert edges.shape == (9,)
     assert bool(torch.all(edges[1:] > edges[:-1]))
@@ -300,7 +299,13 @@ def test_pretrainTFM_trains_on_a_sampled_regression_prior():
     torch.manual_seed(0)
 
     trained = pretrainTFM(
-        model=make_tiny_model(num_outputs=8), prior=make_scm_regression_prior(), eval=[], epochs=1, device="cpu"
+        model=make_tiny_model(num_outputs=8),
+        prior=make_scm_regression_prior(),
+        eval=[],
+        epochs=1,
+        steps_per_epoch=2,
+        batch_size=2,
+        device="cpu",
     )
 
     assert isinstance(trained.dist, FullSupportBarDistribution)
@@ -316,13 +321,16 @@ def test_default_prior_samples_the_scm_on_the_fly(problem):
     """The default prior needs no dump and hands the problem down to our own get_batch."""
     prior = default_prior("cpu", problem)
 
-    assert isinstance(prior, PriorDataLoader)
+    assert isinstance(prior, SCMPrior)
     assert getattr(prior, "filename", None) is None
     assert prior.problem_type == problem
 
-    batch = prior.get_batch()
-    assert batch["x"].shape[0] == prior.batch_size
-    assert 0 < int(batch["train_test_split_index"]) < batch["x"].shape[1]
+    x_train, y_train, x_test, y_test = prior.batch(2)
+    assert x_train.shape[0] == 2
+    assert x_train.shape[1] > 0
+    assert x_test.shape[1] > 0
+    assert y_train.shape[1] == x_train.shape[1]
+    assert y_test.shape[1] == x_test.shape[1]
 
 
 def test_default_classification_prior_fits_the_default_head():
@@ -330,6 +338,7 @@ def test_default_classification_prior_fits_the_default_head():
     prior = default_prior("cpu", "classification")
     assert prior.max_num_classes == MAX_NUM_CLASSES
 
-    labels = prior.get_batch()["y"].unique()
+    _, y_train, _, y_test = prior.batch(2)
+    labels = torch.cat([y_train, y_test], dim=1).unique()
     assert labels.numel() <= MAX_NUM_CLASSES
     assert torch.equal(labels, torch.arange(labels.numel(), dtype=labels.dtype))

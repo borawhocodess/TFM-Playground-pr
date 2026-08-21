@@ -44,15 +44,18 @@ def fetch_dump(url, cache_dir=CACHE_DIR):
     return path
 
 
-def make_global_bucket_edges(prior, n_buckets=100, device=None, max_y=5_000_000):
+def make_global_bucket_edges(prior, n_buckets=100, device=None, max_y=5_000_000, batch_size=8, max_batches=25):
     """
     Fits bucket edges on the targets of a prior, given as a path to a dump, anything carrying a
-    filename attribute, or any dataloader we can sample batches off.
+    filename attribute, or any prior we can sample batches off.
     """
     if device is None:
         device = get_default_device()
     filename = getattr(prior, "filename", prior if isinstance(prior, str | Path) else None)
-    ys_concat = dump_targets(filename, max_y) if filename is not None else sampled_targets(prior, max_y)
+    if filename is not None:
+        ys_concat = dump_targets(filename, max_y)
+    else:
+        ys_concat = sampled_targets(prior, max_y, batch_size, max_batches)
 
     if ys_concat.size < n_buckets:
         raise ValueError(f"Too few target samples ({ys_concat.size}) to compute {n_buckets} buckets.")
@@ -76,16 +79,20 @@ def dump_targets(filename, max_y):
         return ((y_subset - y_means) / y_stds).ravel()
 
 
-def sampled_targets(prior, max_y):
-    """Samples the targets off a prior and z-normalizes every table the way the training loop does."""
+def sampled_targets(prior, max_y, batch_size=8, max_batches=25):
+    """
+    Samples the targets off a prior and z-normalizes every table the way the training loop does.
+    Stops at max_y targets or max_batches batches, whichever comes first.
+    """
     collected = []
     total = 0
-    for batch in prior:
-        y = batch["y"].detach().to("cpu", torch.float32)
-        y_train = y[:, : int(batch["train_test_split_index"])]
+    for _ in range(max_batches):
+        _, y_train, _, y_test = prior.batch(batch_size)
+        y_train = y_train.detach().to("cpu", torch.float32)
+        y_test = y_test.detach().to("cpu", torch.float32)
         y_means = y_train.mean(dim=1, keepdim=True)
         y_stds = y_train.std(dim=1, keepdim=True) + 1e-8
-        normalized = ((y - y_means) / y_stds).ravel().numpy()
+        normalized = ((torch.cat([y_train, y_test], dim=1) - y_means) / y_stds).ravel().numpy()
         collected.append(normalized)
         total += normalized.size
         if total >= max_y:

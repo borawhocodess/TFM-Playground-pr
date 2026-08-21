@@ -7,10 +7,10 @@ from torch import nn
 
 from tfmplayground import TabularClassifier, TabularRegressor, pretrainTFM
 from tfmplayground.evaluation import TOY_TASKS_REGRESSION, OpenMLEvaluationCallback
-from tfmplayground.prior import MAX_NUM_CLASSES, DumpPrior, FunctionPrior, SCMPrior
+from tfmplayground.prior import MAX_NUM_CLASSES, DictPrior, DumpPrior, FunctionPrior, SCMPrior
 from tfmplayground.models import NanoTabPFNModel
 from tfmplayground.train import default_prior, infer_criterion, infer_num_outputs
-from tfmplayground.utils import QuantileLoss, fetch_dump, make_global_bucket_edges
+from tfmplayground.utils import QuantileLoss, dump_targets, fetch_dump, make_global_bucket_edges
 
 
 def make_tiny_model(num_outputs):
@@ -342,3 +342,44 @@ def test_default_classification_prior_fits_the_default_head():
     labels = torch.cat([y_train, y_test], dim=1).unique()
     assert labels.numel() <= MAX_NUM_CLASSES
     assert torch.equal(labels, torch.arange(labels.numel(), dtype=labels.dtype))
+
+
+def test_dict_prior_restarts_a_finite_loader():
+    class FiniteLoader:
+        def __iter__(self):
+            for marker in (1.0, 2.0):
+                x = torch.full((2, 4, 1), marker)
+                y = torch.zeros(2, 4)
+                yield {"x": x, "y": y, "target_y": y, "train_test_split_index": 2}
+
+    prior = DictPrior(FiniteLoader(), problem="classification", max_num_classes=2)
+    markers = [prior.batch(2)[0][0, 0, 0].item() for _ in range(3)]
+
+    assert markers == [1.0, 2.0, 1.0]
+
+
+def test_dump_targets_uses_only_real_rows_and_training_statistics(tmp_path):
+    dump = tmp_path / "padded_regression.h5"
+    with h5py.File(dump, "w") as f:
+        f.create_dataset(
+            "y",
+            data=np.array(
+                [
+                    [0.0, 2.0, 100.0, 200.0, 10_000.0, 10_000.0],
+                    [10.0, 12.0, 14.0, 20.0, 22.0, 10_000.0],
+                ],
+                dtype="f4",
+            ),
+        )
+        f.create_dataset("num_datapoints", data=np.array([4, 5], dtype="i4"))
+        f.create_dataset("train_test_split_index", data=np.array([2, 3], dtype="i4"))
+
+    targets = dump_targets(dump, max_y=9)
+    expected = np.concatenate(
+        [
+            (np.array([0.0, 2.0, 100.0, 200.0]) - 1.0) / np.sqrt(2.0),
+            (np.array([10.0, 12.0, 14.0, 20.0, 22.0]) - 12.0) / 2.0,
+        ]
+    )
+
+    np.testing.assert_allclose(targets, expected, rtol=1e-6)

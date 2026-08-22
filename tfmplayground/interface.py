@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import numpy as np
 import pandas as pd
 import torch
@@ -20,6 +22,17 @@ def to_pandas(x):
 
 def to_numeric(x):
     return x.apply(pd.to_numeric, errors="coerce").to_numpy()
+
+
+@contextmanager
+def evaluation_mode(model: torch.nn.Module):
+    modes = [(module, module.training) for module in model.modules()]
+    model.eval()
+    try:
+        yield
+    finally:
+        for module, was_training in modes:
+            module.training = was_training
 
 
 def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> ColumnTransformer:
@@ -100,7 +113,7 @@ class TabularClassifier:
         and applies softmax to get the probabilities
         """
         X_test = self.feature_preprocessor.transform(X_test)
-        with torch.no_grad():
+        with evaluation_mode(self.model), torch.no_grad():
             # introduce batch size 1
             X_train = torch.from_numpy(self.X_train).unsqueeze(0).to(torch.float).to(self.device)
             X_test = torch.from_numpy(X_test).unsqueeze(0).to(torch.float).to(self.device)
@@ -147,7 +160,7 @@ class TabularRegressor:
         """
         X_test = self.feature_preprocessor.transform(X_test)
 
-        with torch.no_grad():
+        with evaluation_mode(self.model), torch.no_grad():
             X_train = torch.from_numpy(self.X_train).unsqueeze(0).to(torch.float).to(self.device)
             X_test = torch.from_numpy(X_test).unsqueeze(0).to(torch.float).to(self.device)
             y_train = torch.from_numpy(self.y_train_n).unsqueeze(0).to(torch.float).to(self.device)

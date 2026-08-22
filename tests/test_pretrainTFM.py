@@ -399,3 +399,27 @@ def test_quantile_trained_model_carries_its_decoder():
     regressor = TabularRegressor(trained, device="cpu")
     regressor.fit(np.random.default_rng(0).standard_normal((6, 4)), np.arange(6, dtype=float))
     assert regressor.predict(np.ones((3, 4))).shape == (3,)
+
+
+def test_single_row_context_does_not_poison_the_model():
+    class OneRowPrior(SCMPrior):
+        def batch(self, batch_size):
+            x_train, y_train, x_test, y_test = super().batch(batch_size)
+            return x_train[:, :1], y_train[:, :1], x_test, y_test
+
+    prior = OneRowPrior(num_datapoints_max=160, num_features=4, problem="regression", device="cpu")
+    x_train, y_train, _, _ = prior.batch(2)
+    assert torch.isfinite(y_train).all()
+    assert not torch.isfinite(y_train.std(dim=1, keepdim=True)).any()
+
+    with pytest.raises(RuntimeError, match="no finite batches"):
+        pretrainTFM(
+            model=make_tiny_model(4),
+            prior=prior,
+            criterion=FullSupportBarDistribution(torch.linspace(-3, 3, 5)),
+            eval=[],
+            epochs=1,
+            steps_per_epoch=2,
+            batch_size=2,
+            device="cpu",
+        )

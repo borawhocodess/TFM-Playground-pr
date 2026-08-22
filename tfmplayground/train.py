@@ -215,13 +215,17 @@ def train(
                 targets = targets.to(device)
                 if not all(torch.isfinite(tensor).all() for tensor in (x_train, y_train, x_test, targets)):
                     continue
-                num_valid += 1
 
                 if regression_task:
                     y_mean = y_train.mean(dim=1, keepdim=True)
                     y_std = y_train.std(dim=1, keepdim=True) + 1e-8
                     y_train = (y_train - y_mean) / y_std
                     targets = (targets - y_mean) / y_std
+                    # a single training row makes the unbiased std nan, which finite inputs do not reveal
+                    if not torch.isfinite(y_train).all() or not torch.isfinite(targets).all():
+                        continue
+
+                num_valid += 1
 
                 output = model(x_train, y_train, x_test)
                 if classification_task:

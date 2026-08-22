@@ -8,7 +8,14 @@ from torch import nn
 from tfmplayground import TabularClassifier, TabularRegressor, pretrainTFM
 from tfmplayground.evaluation import TOY_TASKS_REGRESSION, OpenMLEvaluationCallback
 from tfmplayground.models import NanoTabPFNModel
-from tfmplayground.priors import MAX_NUM_CLASSES, DictPrior, DumpPrior, FunctionPrior, SCMPrior
+from tfmplayground.priors import (
+    MAX_NUM_CLASSES,
+    DictPrior,
+    DumpPrior,
+    FunctionPrior,
+    ModdedNanoPrior,
+    SCMPrior,
+)
 from tfmplayground.train import default_prior, infer_criterion, infer_num_outputs
 from tfmplayground.utils import QuantileLoss, dump_targets, fetch_dump, make_global_bucket_edges
 
@@ -448,3 +455,56 @@ def test_single_row_classification_context_does_not_poison_the_model():
             batch_size=2,
             device="cpu",
         )
+
+
+def test_modded_nano_prior_follows_the_batch_contract():
+    """The vendored speedrun prior splits its own tables and reports the classification side."""
+    prior = ModdedNanoPrior(
+        num_datapoints_max=200,
+        num_features=8,
+        num_test_datapoints=64,
+        device="cpu",
+    )
+    x_train, y_train, x_test, y_test = prior.batch(4)
+
+    assert x_train.shape == (4, 136, 8)
+    assert y_train.shape == (4, 136)
+    assert x_test.shape == (4, 64, 8)
+    assert y_test.shape == (4, 64)
+    assert torch.isfinite(x_train).all() and torch.isfinite(x_test).all()
+    assert prior.problem_type == "classification"
+    assert 2 <= int(y_train.max()) + 1 <= prior.max_num_classes
+
+
+def test_modded_nano_prior_trains_a_model():
+    """It drops into pretrainTFM like any other prior, no dump in between."""
+    torch.manual_seed(0)
+    model = make_tiny_model(num_outputs=8)
+    parameters_before = [parameter.detach().clone() for parameter in model.parameters()]
+    trained = pretrainTFM(
+        model=model,
+        prior=ModdedNanoPrior(num_datapoints_max=200, num_features=8, num_test_datapoints=64, device="cpu"),
+        eval=[],
+        criterion=nn.CrossEntropyLoss(),
+        epochs=1,
+        steps_per_epoch=2,
+        batch_size=2,
+        device="cpu",
+    )
+    assert any(
+        not torch.equal(before, after.detach())
+        for before, after in zip(parameters_before, trained.parameters(), strict=True)
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        (dict(num_datapoints_max=100, num_test_datapoints=100), "smaller than num_datapoints_max"),
+        (dict(min_num_classes=1), "min_num_classes"),
+    ],
+)
+def test_modded_nano_prior_rejects_bad_settings(kwargs, message):
+    """Bad arguments raise ValueError, not AssertionError, so python -O keeps the check."""
+    with pytest.raises(ValueError, match=message):
+        ModdedNanoPrior(**kwargs)

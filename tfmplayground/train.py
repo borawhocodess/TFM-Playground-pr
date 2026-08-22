@@ -217,14 +217,27 @@ def model_output_kind(model: TabularFoundationModel, problem: str | None) -> str
     if problem is None:
         problems = getattr(model, "problems", PROBLEMS)
         problem = problems[0] if len(problems) == 1 else "regression"
+
+    legacy_kind = vars(model).get("output_kind")
+    if legacy_kind is None:
+        legacy_kind = next(
+            (
+                cls.__dict__["output_kind"]
+                for cls in type(model).mro()
+                if cls is not TabularFoundationModel and "output_kind" in cls.__dict__
+            ),
+            None,
+        )
+
     output_kinds = getattr(model, "output_kinds", None)
-    if output_kinds is not None and problem in output_kinds:
+    if legacy_kind is not None:
+        output_kind = "class_logits" if problem == "classification" else legacy_kind
+    elif output_kinds is not None and problem in output_kinds:
         output_kind = output_kinds[problem]
     else:
-        # Compatibility for third-party models written against the first contract draft.
-        output_kind = getattr(model, "output_kind", "bar_logits")
-        if output_kind == "bar":
-            output_kind = "bar_logits"
+        output_kind = "class_logits" if problem == "classification" else "bar_logits"
+    if output_kind == "bar":
+        output_kind = "bar_logits"
     if output_kind not in OUTPUT_KINDS:
         raise ValueError(f"output_kind must be one of {sorted(OUTPUT_KINDS)}, got {output_kind!r}")
     return output_kind
@@ -305,6 +318,7 @@ def train(
     callbacks: list[Callback] = None,
     multi_gpu: bool = False,
 ):
+    contract_model = model
     if multi_gpu:
         model = nn.DataParallel(model)
     if callbacks is None:
@@ -316,7 +330,7 @@ def train(
     optimizer = schedulefree.AdamWScheduleFree(model.parameters(), lr=lr, weight_decay=0.0)
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
-    output_kind = model_output_kind(model, "classification" if classification_task else "regression")
+    output_kind = model_output_kind(contract_model, "classification" if classification_task else "regression")
 
     batches = iter(PriorDataLoader(prior, batch_size))
 

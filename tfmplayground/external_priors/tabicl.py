@@ -45,7 +45,10 @@ def sample_table(dataset: TabICLPriorDataset, device: torch.device) -> tuple[tor
     """One draw off a tabicl dataset, narrowed to the features that carry signal."""
     x, y, active_features, _, train_size = next(dataset)  # endless, and it silences its own printing
     # The tensor must stay rectangular, so retain every feature used by any table in the batch.
-    x = x[:, :, : active_features.max().item()]
+    max_active = int(active_features.max().item())
+    x = x[:, :, :max_active]
+    feature_mask = torch.arange(max_active, device=x.device).unsqueeze(0) < active_features.to(x.device).unsqueeze(1)
+    x = x * feature_mask.unsqueeze(1)
     return x.to(device), y.to(device), train_size[0].item()
 
 

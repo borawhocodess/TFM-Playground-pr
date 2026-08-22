@@ -1,5 +1,6 @@
 """Compatibility imports for the former singular prior module."""
 
+from tfmplayground.priors import scm as _scm
 from tfmplayground.priors import (
     MAX_NUM_CLASSES,
     Batch,
@@ -14,6 +15,15 @@ from tfmplayground.priors import (
     dump_prior_to_h5,
     get_batch,
 )
+
+
+def __getattr__(name: str):
+    """Forward former SCM implementation details while callers migrate."""
+    try:
+        return getattr(_scm, name)
+    except AttributeError as error:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from error
+
 
 __all__ = [
     "MAX_NUM_CLASSES",

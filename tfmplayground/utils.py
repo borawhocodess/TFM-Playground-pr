@@ -5,7 +5,6 @@ import h5py
 import numpy as np
 import requests
 import torch
-import torch.nn.functional as F
 from pfns.bar_distribution import get_bucket_limits
 from torch import nn
 
@@ -114,7 +113,7 @@ def sampled_targets(prior, max_y, batch_size=8, max_batches=25):
 
 
 class FixedBinDistribution(nn.Module):
-    """Categorical loss and expectation decoder over model-defined finite bins."""
+    """CRPS loss and expectation decoder over model-defined finite bins."""
 
     output_kind = "fixed_bin_logits"
 
@@ -133,8 +132,12 @@ class FixedBinDistribution(nn.Module):
                 f"logits have {logits.shape[-1]} bins but the distribution has {self.borders.numel() - 1}"
             )
         bins = torch.bucketize(target.contiguous(), self.borders[1:-1])
-        losses = F.cross_entropy(logits.reshape(-1, logits.shape[-1]), bins.reshape(-1), reduction="none")
-        return losses.reshape(target.shape)
+        probabilities = torch.softmax(logits.float(), dim=-1)
+        predicted_cdf = probabilities.cumsum(dim=-1)
+        bin_indices = torch.arange(logits.shape[-1], device=logits.device)
+        target_cdf = (bin_indices >= bins.unsqueeze(-1)).to(predicted_cdf.dtype)
+        widths = self.borders[1:] - self.borders[:-1]
+        return (widths * (predicted_cdf - target_cdf).square()).sum(dim=-1)
 
     def mean(self, logits: torch.Tensor) -> torch.Tensor:
         centres = (self.borders[:-1] + self.borders[1:]) / 2

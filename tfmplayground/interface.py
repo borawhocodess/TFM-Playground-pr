@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import numpy as np
 import pandas as pd
 import torch
@@ -6,10 +8,10 @@ from pfns.bar_distribution import FullSupportBarDistribution
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import FunctionTransformer, OrdinalEncoder
+from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OrdinalEncoder
 
 from tfmplayground.models import TabularFoundationModel
-from tfmplayground.utils import get_default_device
+from tfmplayground.utils import QuantileLoss, get_default_device
 
 
 # doing these as lambdas would cause TabularClassifier to not be pickle-able,
@@ -20,6 +22,17 @@ def to_pandas(x):
 
 def to_numeric(x):
     return x.apply(pd.to_numeric, errors="coerce").to_numpy()
+
+
+@contextmanager
+def evaluation_mode(model: torch.nn.Module):
+    modes = [(module, module.training) for module in model.modules()]
+    model.eval()
+    try:
+        yield
+    finally:
+        for module, was_training in modes:
+            module.training = was_training
 
 
 def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> ColumnTransformer:
@@ -83,16 +96,17 @@ class TabularClassifier:
         self.device = device
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
-        """stores X_train and y_train for later use, also computes the highest class number occuring in num_classes"""
         self.feature_preprocessor = get_feature_preprocessor(X_train)
         self.X_train = self.feature_preprocessor.fit_transform(X_train)
-        self.y_train = y_train
-        self.num_classes = max(set(y_train)) + 1
+        self.label_encoder = LabelEncoder()
+        self.y_train = self.label_encoder.fit_transform(y_train)
+        self.classes_ = self.label_encoder.classes_
+        self.num_classes = len(self.classes_)
+        return self
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
-        """calls predit_proba and picks the class with the highest probability for each datapoint"""
         predicted_probabilities = self.predict_proba(X_test)
-        return predicted_probabilities.argmax(axis=1)
+        return self.label_encoder.inverse_transform(predicted_probabilities.argmax(axis=1))
 
     def predict_proba(self, X_test: np.ndarray) -> np.ndarray:
         """
@@ -100,12 +114,16 @@ class TabularClassifier:
         and applies softmax to get the probabilities
         """
         X_test = self.feature_preprocessor.transform(X_test)
-        with torch.no_grad():
+        with evaluation_mode(self.model), torch.no_grad():
             # introduce batch size 1
             X_train = torch.from_numpy(self.X_train).unsqueeze(0).to(torch.float).to(self.device)
             X_test = torch.from_numpy(X_test).unsqueeze(0).to(torch.float).to(self.device)
             y_train = torch.from_numpy(self.y_train).unsqueeze(0).to(torch.float).to(self.device)
             out = self.model(X_train, y_train, X_test).squeeze(0)  # remove batch size 1
+            if out.shape[-1] < self.num_classes:
+                raise ValueError(
+                    f"the model has {out.shape[-1]} outputs but the context contains {self.num_classes} classes"
+                )
             # our pretrained classifier supports up to num_outputs classes, if the dataset has less we cut off the rest
             out = out[:, : self.num_classes]
             # apply softmax to get a probability distribution
@@ -119,7 +137,7 @@ class TabularRegressor:
     def __init__(
         self,
         model: TabularFoundationModel,
-        dist: FullSupportBarDistribution | None = None,
+        dist: FullSupportBarDistribution | QuantileLoss | None = None,
         device: str | torch.device | None = None,
     ):
         if device is None:
@@ -140,6 +158,7 @@ class TabularRegressor:
         self.y_train_mean = np.mean(self.y_train)
         self.y_train_std = np.std(self.y_train, ddof=1) + 1e-8
         self.y_train_n = (self.y_train - self.y_train_mean) / self.y_train_std
+        return self
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
         """
@@ -147,13 +166,21 @@ class TabularRegressor:
         """
         X_test = self.feature_preprocessor.transform(X_test)
 
-        with torch.no_grad():
+        with evaluation_mode(self.model), torch.no_grad():
             X_train = torch.from_numpy(self.X_train).unsqueeze(0).to(torch.float).to(self.device)
             X_test = torch.from_numpy(X_test).unsqueeze(0).to(torch.float).to(self.device)
             y_train = torch.from_numpy(self.y_train_n).unsqueeze(0).to(torch.float).to(self.device)
 
             logits = self.model(X_train, y_train, X_test).squeeze(0)
-            preds_n = self.dist.mean(logits) if self.dist is not None else logits.mean(dim=-1)
+            if self.dist is not None:
+                preds_n = self.dist.mean(logits)
+            elif logits.shape[-1] == 1:
+                preds_n = logits.squeeze(-1)
+            else:
+                raise ValueError(
+                    "TabularRegressor needs a distribution to decode a multi-output model; "
+                    "pass dist= or use a model from pretrainTFM, which attaches one"
+                )
             preds = preds_n * self.y_train_std + self.y_train_mean
 
         return preds.cpu().numpy()

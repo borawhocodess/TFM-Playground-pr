@@ -7,10 +7,10 @@ from torch import nn
 
 from tfmplayground import TabularClassifier, TabularRegressor, pretrainTFM
 from tfmplayground.evaluation import TOY_TASKS_REGRESSION, OpenMLEvaluationCallback
-from tfmplayground.prior import MAX_NUM_CLASSES, DumpPrior, FunctionPrior, SCMPrior
 from tfmplayground.models import NanoTabPFNModel
+from tfmplayground.prior import MAX_NUM_CLASSES, DictPrior, DumpPrior, FunctionPrior, SCMPrior
 from tfmplayground.train import default_prior, infer_criterion, infer_num_outputs
-from tfmplayground.utils import QuantileLoss, fetch_dump, make_global_bucket_edges
+from tfmplayground.utils import QuantileLoss, dump_targets, fetch_dump, make_global_bucket_edges
 
 
 def make_tiny_model(num_outputs):
@@ -342,3 +342,109 @@ def test_default_classification_prior_fits_the_default_head():
     labels = torch.cat([y_train, y_test], dim=1).unique()
     assert labels.numel() <= MAX_NUM_CLASSES
     assert torch.equal(labels, torch.arange(labels.numel(), dtype=labels.dtype))
+
+
+def test_dict_prior_restarts_a_finite_loader():
+    class FiniteLoader:
+        def __iter__(self):
+            for marker in (1.0, 2.0):
+                x = torch.full((2, 4, 1), marker)
+                y = torch.zeros(2, 4)
+                yield {"x": x, "y": y, "target_y": y, "train_test_split_index": 2}
+
+    prior = DictPrior(FiniteLoader(), problem="classification", max_num_classes=2)
+    markers = [prior.batch(2)[0][0, 0, 0].item() for _ in range(3)]
+
+    assert markers == [1.0, 2.0, 1.0]
+
+
+def test_dump_targets_skips_padding_rows(tmp_path):
+    dump = tmp_path / "padded_regression.h5"
+    first = np.array([0.0, 2.0, 100.0, 200.0])
+    second = np.array([10.0, 12.0, 14.0, 20.0, 22.0])
+    with h5py.File(dump, "w") as f:
+        f.create_dataset(
+            "y",
+            data=np.array(
+                [
+                    [*first, 10_000.0, 10_000.0],
+                    [*second, 10_000.0],
+                ],
+                dtype="f4",
+            ),
+        )
+        f.create_dataset("num_datapoints", data=np.array([first.size, second.size], dtype="i4"))
+
+    targets = dump_targets(dump, max_y=9)
+
+    expected = np.concatenate([(t - t.mean()) / (t.std(ddof=1) + 1e-8) for t in (first, second)])
+    assert targets.size == first.size + second.size
+    np.testing.assert_allclose(targets, expected, rtol=1e-5)
+
+
+def test_quantile_trained_model_carries_its_decoder():
+    prior = SCMPrior(num_datapoints_max=160, num_features=4, problem="regression", device="cpu")
+    trained = pretrainTFM(
+        model=make_tiny_model(5),
+        prior=prior,
+        criterion=QuantileLoss(5),
+        eval=[],
+        epochs=1,
+        steps_per_epoch=1,
+        batch_size=2,
+        device="cpu",
+    )
+
+    assert isinstance(trained.dist, QuantileLoss)
+    regressor = TabularRegressor(trained, device="cpu")
+    regressor.fit(np.random.default_rng(0).standard_normal((6, 4)), np.arange(6, dtype=float))
+    assert regressor.predict(np.ones((3, 4))).shape == (3,)
+
+
+def test_single_row_context_does_not_poison_the_model():
+    class OneRowPrior(SCMPrior):
+        def batch(self, batch_size):
+            x_train, y_train, x_test, y_test = super().batch(batch_size)
+            return x_train[:, :1], y_train[:, :1], x_test, y_test
+
+    prior = OneRowPrior(num_datapoints_max=160, num_features=4, problem="regression", device="cpu")
+    x_train, y_train, _, _ = prior.batch(2)
+    assert torch.isfinite(y_train).all()
+    assert not torch.isfinite(y_train.std(dim=1, keepdim=True)).any()
+
+    with pytest.raises(RuntimeError, match="no finite batches"):
+        pretrainTFM(
+            model=make_tiny_model(4),
+            prior=prior,
+            criterion=FullSupportBarDistribution(torch.linspace(-3, 3, 5)),
+            eval=[],
+            epochs=1,
+            steps_per_epoch=2,
+            batch_size=2,
+            device="cpu",
+        )
+
+
+def test_single_row_classification_context_does_not_poison_the_model():
+    class OneRowPrior(SCMPrior):
+        def batch(self, batch_size):
+            x_train, y_train, x_test, y_test = super().batch(batch_size)
+            return x_train[:, :1], y_train[:, :1], x_test, y_test
+
+    prior = OneRowPrior(num_datapoints_max=160, num_features=4, problem="classification", device="cpu")
+    model = make_tiny_model(MAX_NUM_CLASSES)
+    x_train, y_train, x_test, _ = prior.batch(2)
+    assert torch.isfinite(x_train).all()
+    assert not torch.isfinite(model(x_train, y_train, x_test)).all()
+
+    with pytest.raises(RuntimeError, match="no finite batches"):
+        pretrainTFM(
+            model=model,
+            prior=prior,
+            criterion=nn.CrossEntropyLoss(),
+            eval=[],
+            epochs=1,
+            steps_per_epoch=2,
+            batch_size=2,
+            device="cpu",
+        )

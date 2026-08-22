@@ -28,7 +28,6 @@ def pretrainTFM(
     epochs: int = 100,
     steps_per_epoch: int = 25,
     batch_size: int = 4,
-    accumulate_gradients: int = 1,
     lr: float = 1e-4,
     device: torch.device = None,
     multi_gpu: bool = False,
@@ -51,7 +50,6 @@ def pretrainTFM(
         epochs: (int) the number of epochs we train for
         steps_per_epoch: (int) the number of batches that make up an epoch
         batch_size: (int) the number of tables per batch
-        accumulate_gradients: (int) the number of gradients to accumulate before updating the weights
         lr: (float) the learning rate
         device: (torch.device) the device we are using
         multi_gpu: (bool) whether to wrap the model in DataParallel
@@ -117,13 +115,13 @@ def pretrainTFM(
         epochs=epochs,
         steps_per_epoch=steps_per_epoch,
         batch_size=batch_size,
-        accumulate_gradients=accumulate_gradients,
         lr=lr,
         device=device,
         callbacks=eval,
         multi_gpu=multi_gpu,
     )
-    if isinstance(criterion, FullSupportBarDistribution):
+    decoder = getattr(criterion, "mean", None)
+    if callable(decoder):
         trained_model.dist = criterion
     return trained_model
 
@@ -184,30 +182,11 @@ def train(
     epochs: int,
     steps_per_epoch: int = 25,
     batch_size: int = 4,
-    accumulate_gradients: int = 1,
     lr: float = 1e-4,
     device: torch.device = None,
     callbacks: list[Callback] = None,
     multi_gpu: bool = False,
 ):
-    """
-    Trains our model on the given prior using the given criterion.
-
-    Args:
-        model: (TabularFoundationModel) our PyTorch model
-        prior: (Prior) the prior we sample our pretraining batches from
-        criterion: (nn.CrossEntropyLoss | FullSupportBarDistribution) our loss criterion
-        epochs: (int) the number of epochs we train for
-        steps_per_epoch: (int) the number of batches that make up an epoch
-        batch_size: (int) the number of tables per batch
-        accumulate_gradients: (int) the number of gradients to accumulate before updating the weights
-        device: (torch.device) the device we are using
-        callbacks: A list of callback instances to execute at the end of each epoch. These can be used for
-            logging, validation, or other custom actions.
-
-    Returns:
-        (torch.Tensor) a tensor of shape (num_rows, batch_size, num_features, embedding_size)
-    """
     if multi_gpu:
         model = nn.DataParallel(model)
     if callbacks is None:
@@ -219,8 +198,6 @@ def train(
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
 
-    assert steps_per_epoch % accumulate_gradients == 0, "steps_per_epoch must be divisible by accumulate_gradients"
-
     batches = iter(PriorDataLoader(prior, batch_size))
 
     try:
@@ -229,13 +206,14 @@ def train(
             model.train()  # Turn on the train mode
             optimizer.train()
             total_loss = 0.0
-            for i in range(steps_per_epoch):
+            num_valid = 0
+            for _ in range(steps_per_epoch):
                 x_train, y_train, x_test, targets = next(batches)
                 x_train = x_train.to(device)
                 y_train = y_train.to(device)
                 x_test = x_test.to(device)
                 targets = targets.to(device)
-                if torch.isnan(x_train).any() or torch.isnan(x_test).any() or torch.isnan(y_train).any():
+                if not all(torch.isfinite(tensor).all() for tensor in (x_train, y_train, x_test, targets)):
                     continue
 
                 if regression_task:
@@ -243,44 +221,52 @@ def train(
                     y_std = y_train.std(dim=1, keepdim=True) + 1e-8
                     y_train = (y_train - y_mean) / y_std
                     targets = (targets - y_mean) / y_std
+                    # a single training row makes the unbiased std nan, which finite inputs do not reveal
+                    if not torch.isfinite(y_train).all() or not torch.isfinite(targets).all():
+                        continue
 
                 output = model(x_train, y_train, x_test)
+                # a model's own feature normalization can go non-finite on a one row context
+                if not torch.isfinite(output).all():
+                    continue
+
                 if classification_task:
                     targets = targets.reshape((-1,)).to(torch.long)
                     output = output.view(-1, output.shape[-1])
 
                 losses = criterion(output, targets)
-                loss = losses.mean() / accumulate_gradients
-                loss.backward()
-                total_loss += loss.cpu().detach().item() * accumulate_gradients
+                if not torch.isfinite(losses).all():
+                    continue
 
-                if (i + 1) % accumulate_gradients == 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                    optimizer.step()
-                    optimizer.zero_grad()
+                num_valid += 1
+                loss = losses.mean()
+                loss.backward()
+                total_loss += loss.cpu().detach().item()
+
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                optimizer.zero_grad()
+
+            if num_valid == 0:
+                raise RuntimeError("the prior produced no finite batches in this epoch")
 
             end_time = time.time()
-            mean_loss = total_loss / steps_per_epoch
+            mean_loss = total_loss / num_valid
             model.eval()
             optimizer.eval()
 
             for callback in callbacks:
-                if type(criterion) is FullSupportBarDistribution:
-                    callback.on_epoch_end(
-                        epoch,
-                        end_time - epoch_start_time,
-                        mean_loss,
-                        (model.module if multi_gpu else model),
-                        dist=criterion,
-                    )
-                else:
-                    callback.on_epoch_end(
-                        epoch, end_time - epoch_start_time, mean_loss, (model.module if multi_gpu else model)
-                    )
+                callback.on_epoch_end(
+                    epoch,
+                    end_time - epoch_start_time,
+                    mean_loss,
+                    (model.module if multi_gpu else model),
+                    dist=criterion,
+                )
     except KeyboardInterrupt:
         pass
     finally:
         for callback in callbacks:
             callback.close()
 
-    return (model.module if multi_gpu else model), total_loss
+    return (model.module if multi_gpu else model), mean_loss

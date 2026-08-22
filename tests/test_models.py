@@ -3,7 +3,6 @@ import torch
 from torch import nn
 
 from tfmplayground import pretrainTFM
-from tfmplayground.prior import FunctionPrior
 from tfmplayground.models import (
     ModdedNanoTabPFNModel,
     NanoTabICLv2,
@@ -11,6 +10,7 @@ from tfmplayground.models import (
     TabDPTModel,
     TabFMModel,
 )
+from tfmplayground.prior import FunctionPrior
 
 
 def make_nanotabpfn():
@@ -101,6 +101,8 @@ def get_three_class_batch(batch_size, num_datapoints, num_features):
 def test_pretrainTFM_swaps_any_model(make_model):
     """Every model drops into pretrainTFM as-is and comes back trained."""
     torch.manual_seed(0)
+    model = make_model()
+    parameters_before = [parameter.detach().clone() for parameter in model.parameters()]
     prior = FunctionPrior(
         get_batch_function=get_three_class_batch,
         num_datapoints_max=16,
@@ -108,7 +110,7 @@ def test_pretrainTFM_swaps_any_model(make_model):
         device="cpu",
     )
     trained = pretrainTFM(
-        model=make_model(),
+        model=model,
         prior=prior,
         eval=[],
         criterion=nn.CrossEntropyLoss(),
@@ -122,3 +124,7 @@ def test_pretrainTFM_swaps_any_model(make_model):
         out = trained(torch.randn(2, 12, 4), torch.randint(0, 3, (2, 12)).float(), torch.randn(2, 5, 4))
     assert out.shape == (2, 5, 3)
     assert torch.isfinite(out).all()
+    assert any(
+        not torch.equal(before, after.detach())
+        for before, after in zip(parameters_before, trained.parameters(), strict=True)
+    )

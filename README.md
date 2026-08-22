@@ -138,9 +138,8 @@ prior = DictPrior(
 ```
 The external wrappers still speak the older dict shape, because the libraries behind them do. `DictPrior` converts them. You can check out `prior.batch(4)` if you want to see an example batch.
 
-Check out `prior_visualization.ipynb` for some more examples.
-
 ### Supported Priors
 
 - [TabICL](https://github.com/soda-inria/tabicl) (Classification)
 - [TICL](https://github.com/microsoft/ticl) (Regression, Classification)
+- [TabPFN v1 prior](https://github.com/automl/tabpfn-v1-prior) (Regression, Classification)

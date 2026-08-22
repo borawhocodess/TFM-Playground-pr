@@ -211,6 +211,7 @@ def train(
             model.train()  # Turn on the train mode
             optimizer.train()
             total_loss = 0.0
+            num_valid = 0
             for i in range(steps_per_epoch):
                 x_train, y_train, x_test, targets = next(batches)
                 x_train = x_train.to(device)
@@ -219,6 +220,7 @@ def train(
                 targets = targets.to(device)
                 if torch.isnan(x_train).any() or torch.isnan(x_test).any() or torch.isnan(y_train).any():
                     continue
+                num_valid += 1
 
                 if regression_task:
                     y_mean = y_train.mean(dim=1, keepdim=True)
@@ -242,7 +244,7 @@ def train(
                     optimizer.zero_grad()
 
             end_time = time.time()
-            mean_loss = total_loss / steps_per_epoch
+            mean_loss = total_loss / num_valid
             model.eval()
             optimizer.eval()
 
@@ -265,4 +267,4 @@ def train(
         for callback in callbacks:
             callback.close()
 
-    return (model.module if multi_gpu else model), total_loss
+    return (model.module if multi_gpu else model), mean_loss

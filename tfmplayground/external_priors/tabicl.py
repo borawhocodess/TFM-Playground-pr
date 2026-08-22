@@ -1,5 +1,7 @@
 """The official TabICL prior, sampled live or dumped to HDF5."""
 
+import inspect
+
 import torch
 from tabicl.prior import PriorDataset as TabICLPriorDataset
 from torch.utils.data import DataLoader
@@ -8,6 +10,9 @@ from tfmplayground.priors.base import MAX_NUM_CLASSES, Batch, Prior
 from tfmplayground.utils import get_default_device
 
 PROBLEMS = ("classification", "regression")
+
+if "regression" not in inspect.signature(TabICLPriorDataset.__init__).parameters:
+    raise ImportError("TFM-Playground requires the pinned TabICL regression prior API.")
 
 
 def build_dataset(
@@ -39,8 +44,8 @@ def build_dataset(
 def sample_table(dataset: TabICLPriorDataset, device: torch.device) -> tuple[torch.Tensor, torch.Tensor, int]:
     """One draw off a tabicl dataset, narrowed to the features that carry signal."""
     x, y, active_features, _, train_size = next(dataset)  # endless, and it silences its own printing
-    # every table in the batch shares these because we sample one group at a time (not true in practice!)
-    x = x[:, :, : active_features[0].item()]
+    # The tensor must stay rectangular, so retain every feature used by any table in the batch.
+    x = x[:, :, : active_features.max().item()]
     return x.to(device), y.to(device), train_size[0].item()
 
 
@@ -95,6 +100,8 @@ class TabICLPrior(Prior):
             raise ValueError(f"problem must be one of {sorted(PROBLEMS)}, got {problem!r}")
         if problem == "classification" and max_num_classes < 2:
             raise ValueError(f"max_num_classes must be at least 2, got {max_num_classes}")
+        if n_jobs != 1:
+            raise ValueError("the pinned TabICL sampler requires n_jobs=1")
         self.num_datapoints_min = num_datapoints_min
         self.num_datapoints_max = num_datapoints_max
         self.num_features_min = num_features_min
@@ -176,7 +183,7 @@ class TabICLPriorDataLoader(DataLoader):
             num_features_max=max_features,
             max_num_classes=max_num_classes or 2,
             prior_type=prior_type,
-            n_jobs=-1,
+            n_jobs=1,
         )
 
     def tabicl_to_ours(self):

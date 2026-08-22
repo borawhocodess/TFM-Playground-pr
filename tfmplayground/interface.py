@@ -96,7 +96,6 @@ class TabularClassifier:
         self.device = device
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
-        """stores X_train and y_train for later use, also computes the highest class number occuring in num_classes"""
         self.feature_preprocessor = get_feature_preprocessor(X_train)
         self.X_train = self.feature_preprocessor.fit_transform(X_train)
         self.label_encoder = LabelEncoder()
@@ -105,7 +104,6 @@ class TabularClassifier:
         self.num_classes = len(self.classes_)
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
-        """calls predit_proba and picks the class with the highest probability for each datapoint"""
         predicted_probabilities = self.predict_proba(X_test)
         return self.label_encoder.inverse_transform(predicted_probabilities.argmax(axis=1))
 

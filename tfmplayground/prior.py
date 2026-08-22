@@ -1,6 +1,5 @@
 """Compatibility imports for the former singular prior module."""
 
-from tfmplayground.priors import scm as _scm
 from tfmplayground.priors import (
     MAX_NUM_CLASSES,
     Batch,
@@ -15,6 +14,7 @@ from tfmplayground.priors import (
     dump_prior_to_h5,
     get_batch,
 )
+from tfmplayground.priors import scm as _scm
 
 
 def __getattr__(name: str):

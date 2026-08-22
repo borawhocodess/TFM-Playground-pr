@@ -27,7 +27,8 @@ dependencies = [
     "tqdm",
     "pfns==0.3.0",
     "openml==0.15.1",
-    "tabicl[pretrain]>=2.1.0",
+    "interpret-core",  # undeclared ticl dependency, ticl/__init__ fails to import without it
+    "tabicl[pretrain] @ git+https://github.com/soda-inria/tabicl.git@main",
     "ticl @ git+https://github.com/microsoft/ticl.git@main",
     "tabpfn-v1-prior @ git+https://github.com/automl/tabpfn-v1-prior.git",
     "mlflow",

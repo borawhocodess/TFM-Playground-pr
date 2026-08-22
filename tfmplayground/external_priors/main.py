@@ -8,10 +8,6 @@ import torch
 
 from tfmplayground.priors import DictPrior, dump_prior_to_h5
 
-from .tabicl import TabICLPriorDataLoader
-from .tabpfn import TabPFNPriorDataLoader, build_tabpfn_prior
-from .ticl import TICLPriorDataLoader, build_ticl_prior
-
 
 def main():
     parser = argparse.ArgumentParser(description="Dump prior data (TICL, TabICL, or TabPFN) into HDF5 format.")
@@ -78,7 +74,10 @@ def main():
     # infer the problem_type from max_classes
     problem_type = "classification" if args.max_classes > 0 else "regression"
 
+    # imported per branch so a broken install of one library does not block the others
     if args.lib == "ticl":
+        from .ticl import TICLPriorDataLoader, build_ticl_prior
+
         prior = TICLPriorDataLoader(
             prior=build_ticl_prior(args.prior_type, args.base_prior, args.max_classes),
             num_steps=args.num_batches,
@@ -89,6 +88,8 @@ def main():
             min_eval_pos=args.min_eval_pos,
         )
     elif args.lib == "tabpfn":
+        from .tabpfn import TabPFNPriorDataLoader, build_tabpfn_prior
+
         tabpfn_config = build_tabpfn_prior(args.prior_type, args.max_classes)
         prior = TabPFNPriorDataLoader(
             prior_type=args.prior_type,
@@ -100,6 +101,8 @@ def main():
             **tabpfn_config,
         )
     else:  # tabicl
+        from .tabicl import TabICLPriorDataLoader
+
         prior = TabICLPriorDataLoader(
             num_steps=args.num_batches,
             batch_size=args.batch_size,
@@ -110,6 +113,7 @@ def main():
             max_num_classes=args.max_classes,
             prior_type=args.prior_type,
             device=device,
+            problem=problem_type,
         )
 
     dump_prior_to_h5(

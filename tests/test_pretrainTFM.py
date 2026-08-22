@@ -578,3 +578,88 @@ def test_nanotabicl_prior_rejects_bad_settings(kwargs, message):
     """Bad arguments raise ValueError, not AssertionError, so python -O keeps the check."""
     with pytest.raises(ValueError, match=message):
         make_nanotabicl_prior(**kwargs)
+
+
+def make_tabicl_prior(**kwargs):
+    from tfmplayground.external_priors import TabICLPrior
+
+    settings = dict(
+        num_datapoints_min=64,
+        num_datapoints_max=128,
+        num_features_min=4,
+        num_features_max=8,
+        n_jobs=1,
+        device="cpu",
+    )
+    return TabICLPrior(**(settings | kwargs))
+
+
+@pytest.mark.parametrize("problem", ["classification", "regression"])
+def test_tabicl_prior_samples_live(problem):
+    """The official tabicl prior streams straight into the batch contract, no dump in between."""
+    torch.manual_seed(0)
+    prior = make_tabicl_prior(problem=problem)
+    x_train, y_train, x_test, y_test = prior.batch(2)
+
+    assert x_train.shape[0] == x_test.shape[0] == 2
+    assert x_train.shape[2] == x_test.shape[2]  # same features on both halves
+    assert x_train.shape[1] + x_test.shape[1] == y_train.shape[1] + y_test.shape[1]
+    assert torch.isfinite(x_train).all() and torch.isfinite(y_train).all()
+    assert prior.problem_type == problem
+    if problem == "classification":
+        assert 2 <= int(y_train.max()) + 1 <= prior.max_num_classes
+        assert torch.equal(y_train, y_train.round())
+    else:
+        assert prior.max_num_classes is None
+        assert not torch.equal(y_train, y_train.round())  # continuous, not bucketed into classes
+
+
+def test_tabicl_regression_targets_vary_on_both_sides_of_the_split():
+    """A regression table is only useful if the target moves in the context and in the queries."""
+    torch.manual_seed(0)
+    _, y_train, _, y_test = make_tabicl_prior(problem="regression").batch(2)
+    assert (y_train.std(dim=1) > 0).all()
+    assert (y_test.std(dim=1) > 0).all()
+
+
+def test_tabicl_prior_rebuilds_when_the_batch_size_changes():
+    """tabicl fixes the batch size at construction, so asking for another one rebuilds."""
+    prior = make_tabicl_prior()
+    assert prior.batch(2)[0].shape[0] == 2
+    assert prior.batch(3)[0].shape[0] == 3
+
+
+def test_tabicl_prior_trains_a_model():
+    """It drops into pretrainTFM like any other prior."""
+    torch.manual_seed(0)
+    model = make_tiny_model(num_outputs=MAX_NUM_CLASSES)
+    parameters_before = [parameter.detach().clone() for parameter in model.parameters()]
+    trained = pretrainTFM(
+        model=model,
+        prior=make_tabicl_prior(),
+        eval=[],
+        criterion=nn.CrossEntropyLoss(),
+        epochs=1,
+        steps_per_epoch=2,
+        batch_size=2,
+        device="cpu",
+    )
+    assert any(
+        not torch.equal(before, after.detach())
+        for before, after in zip(parameters_before, trained.parameters(), strict=True)
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        (dict(num_datapoints_min=128, num_datapoints_max=128), "smaller than num_datapoints_max"),
+        (dict(num_features_min=9, num_features_max=8), "must not exceed"),
+        (dict(max_num_classes=0), "at least 2"),
+        (dict(problem="ranking"), "problem must be one of"),
+    ],
+)
+def test_tabicl_prior_rejects_bad_settings(kwargs, message):
+    """Bad arguments raise ValueError here rather than 'low >= high' from deep inside the library."""
+    with pytest.raises(ValueError, match=message):
+        make_tabicl_prior(**kwargs)

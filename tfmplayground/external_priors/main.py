@@ -6,7 +6,7 @@ import random
 import numpy as np
 import torch
 
-from tfmplayground.prior import DictPrior, dump_prior_to_h5
+from tfmplayground.priors import DictPrior, dump_prior_to_h5
 
 from .tabicl import TabICLPriorDataLoader
 from .tabpfn import TabPFNPriorDataLoader, build_tabpfn_prior

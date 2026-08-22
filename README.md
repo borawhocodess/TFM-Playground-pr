@@ -29,12 +29,12 @@ which asks the same prior for continuous targets instead and fits a bar distribu
 
 ### The prior
 
-`tfmplayground/prior.py` implements the TabPFNv2 prior from scratch: a scale-free DAG is sampled by growing network with redirection, data is pushed through it along edges that are small neural networks, decision trees or categorical discretizations with noise added at each one, and the resulting columns are warped and quantized before one of them is taken as the target. Every choice the paper does not pin down is marked `NO RANGE` in the source, next to where we took it from instead.
+`tfmplayground/priors/scm.py` implements the TabPFNv2 prior from scratch: a scale-free DAG is sampled by growing network with redirection, data is pushed through it along edges that are small neural networks, decision trees or categorical discretizations with noise added at each one, and the resulting columns are warped and quantized before one of them is taken as the target. Every choice the paper does not pin down is marked `NO RANGE` in the source, next to where we took it from instead.
 
 You can sample it directly:
 
 ```python
-from tfmplayground.prior import get_batch
+from tfmplayground.priors import get_batch
 
 batch = get_batch(batch_size=4, num_datapoints_max=160, num_features=8, problem="regression")
 ```
@@ -71,7 +71,7 @@ Every part of the call can be replaced:
 from tfmplayground import pretrainTFM
 from tfmplayground.evaluation import TOY_TASKS_CLASSIFICATION, OpenMLEvaluationCallback
 from tfmplayground.models import NanoTabPFNModel
-from tfmplayground.prior import DumpPrior
+from tfmplayground.priors import DumpPrior
 from tfmplayground.train import DUMP_URLS
 from tfmplayground.utils import fetch_dump
 
@@ -97,7 +97,7 @@ The example above pretrains on [100k pre-generated classification datasets](http
 
 ### Our Code
 
-`tfmplayground/models/` contains the architectures, each implemented in a single file. `tfmplayground/train.py` implements `pretrainTFM` and a simple training loop, `tfmplayground/prior.py` holds our own prior, the priors that wrap other sources including HDF5 dumps, and the loader that streams batches off any of them, and `tfmplayground/external_priors/` provides an interface to publicly available priors from other repositories.
+`tfmplayground/models/` contains the architectures, each implemented in a single file. `tfmplayground/train.py` implements `pretrainTFM` and a simple training loop, `tfmplayground/priors/` holds our own prior, the priors that wrap other sources including HDF5 dumps, and the loader that streams batches off any of them, and `tfmplayground/external_priors/` provides an interface to publicly available priors from other repositories.
 We will release multiple dumps of different scales soon. We also offer an interface where you can provide your own get\_batch function.
 
 ### Creating your own datasets
@@ -114,13 +114,13 @@ python -m tfmplayground.external_priors --lib tabicl \
 ```
 which can afterwards be loaded via
 ```python
-from tfmplayground.prior import DumpPrior
+from tfmplayground.priors import DumpPrior
 prior = DumpPrior('tabicl_4k_50x3.h5')
 ```
 You can also just let it create the data on-the-fly via:
 ```python
 from tfmplayground.external_priors import TabICLPriorDataLoader
-from tfmplayground.prior import DictPrior
+from tfmplayground.priors import DictPrior
 
 prior = DictPrior(
     TabICLPriorDataLoader(

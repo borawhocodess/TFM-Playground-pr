@@ -10,7 +10,7 @@ from tfmplayground.models import (
     TabDPTModel,
     TabFMModel,
 )
-from tfmplayground.prior import FunctionPrior
+from tfmplayground.priors import FunctionPrior
 
 
 def make_nanotabpfn():

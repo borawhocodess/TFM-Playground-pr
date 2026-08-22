@@ -7,7 +7,7 @@ from torch import nn
 
 from tfmplayground.callbacks import Callback, ConsoleLoggerCallback
 from tfmplayground.models import NanoTabPFNModel, TabularFoundationModel
-from tfmplayground.prior import Prior, PriorDataLoader
+from tfmplayground.priors import Prior, PriorDataLoader
 from tfmplayground.utils import QuantileLoss, get_default_device, make_global_bucket_edges
 
 PROBLEMS = ("classification", "regression")
@@ -137,7 +137,7 @@ def pretrainTFM(
 
 def default_prior(device: torch.device, problem: str) -> Prior:
     """Our own structural causal model prior, sampled on the fly, nothing to download."""
-    from tfmplayground.prior import SCMPrior
+    from tfmplayground.priors import SCMPrior
 
     return SCMPrior(num_datapoints_max=160, num_features=8, problem=problem, device=device)
 

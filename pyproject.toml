@@ -72,7 +72,7 @@ ignore = [
     "I001",  # unsorted imports
     "UP045", # non-pep604 annotation optional
 ]
-"tfmplayground/prior.py" = [
+"tfmplayground/priors/scm.py" = [
     "E501", # line too long
 ]
 

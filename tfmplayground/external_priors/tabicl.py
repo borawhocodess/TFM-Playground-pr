@@ -64,7 +64,9 @@ class TabICLPrior(Prior):
         problem (str): "classification" or "regression".
         max_num_classes (int): most classes a classification target is cut into, at least 2.
         prior_type (str): "mlp_scm", "tree_scm", "mix_scm" or "dummy".
-        n_jobs (int): worker processes the library samples with, -1 for all cores.
+        n_jobs (int): worker processes the library samples with. 1, because the parallel path
+            pickles its hyperparameter samplers and they are local closures, so anything above 1
+            raises. tabicl says as much itself: the loky backend is for dumping to disk first.
         device (torch.device): device the batches end up on, defaults to the best available one.
     """
 
@@ -77,7 +79,7 @@ class TabICLPrior(Prior):
         problem: str = "classification",
         max_num_classes: int = MAX_NUM_CLASSES,
         prior_type: str = "mlp_scm",
-        n_jobs: int = -1,
+        n_jobs: int = 1,
         device: torch.device = None,
     ):
         if num_datapoints_min >= num_datapoints_max:

@@ -325,11 +325,13 @@ def test_pretrainTFM_trains_on_a_sampled_regression_prior():
 
 
 @pytest.mark.parametrize("problem", ["classification", "regression"])
-def test_default_prior_samples_the_scm_on_the_fly(problem):
-    """The default prior needs no dump and hands the problem down to our own get_batch."""
+def test_default_prior_samples_tabicl_on_the_fly(problem):
+    """The default prior is the official tabicl one, sampled live, with no dump behind it."""
+    from tfmplayground.external_priors import TabICLPrior
+
     prior = default_prior("cpu", problem)
 
-    assert isinstance(prior, SCMPrior)
+    assert isinstance(prior, TabICLPrior)
     assert getattr(prior, "filename", None) is None
     assert prior.problem_type == problem
 
@@ -342,7 +344,7 @@ def test_default_prior_samples_the_scm_on_the_fly(problem):
 
 
 def test_default_classification_prior_fits_the_default_head():
-    """The scm caps itself at ten classes, which is exactly what the default model head holds."""
+    """The default prior caps itself at ten classes, exactly what the default model head holds."""
     prior = default_prior("cpu", "classification")
     assert prior.max_num_classes == MAX_NUM_CLASSES
 

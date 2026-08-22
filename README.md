@@ -17,7 +17,7 @@ from tfmplayground import pretrainTFM
 model = pretrainTFM()
 ```
 
-Everything is optional and nothing is downloaded: with no arguments this samples tables from our own structural causal model prior on the fly, builds a small nanoTabPFN with a ten class head to fit them, picks cross entropy as the criterion and pretrains on the best available device, logging the loss to the console. This takes around ten minutes on a Macbook M4 Pro GPU.
+Everything is optional and nothing is downloaded: with no arguments this samples tables from the official TabICL prior on the fly, builds a small nanoTabPFN with a ten class head to fit them, picks cross entropy as the criterion and pretrains on the best available device, logging the loss to the console. This takes around ten minutes on a Macbook M4 Pro GPU.
 
 The same goes for regression:
 

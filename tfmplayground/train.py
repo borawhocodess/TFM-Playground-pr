@@ -39,7 +39,7 @@ def pretrainTFM(
         model: (TabularFoundationModel) any model implementing the base forward contract,
             defaults to a nanotabpfn with a 10 class head (100 buckets for regression)
         prior: (Prior) the prior to pretrain on, sampled batch by batch,
-            defaults to our own structural causal model prior, nothing to download
+            defaults to the official tabicl prior, sampled live, nothing to download
         eval: a callback or list of callbacks run at the end of each epoch,
             defaults to logging the loss to the console
         regime: reserved for training regimes, not implemented yet
@@ -136,10 +136,23 @@ def pretrainTFM(
 
 
 def default_prior(device: torch.device, problem: str) -> Prior:
-    """Our own structural causal model prior, sampled on the fly, nothing to download."""
-    from tfmplayground.priors import SCMPrior
+    """
+    The official tabicl prior, sampled on the fly, nothing to download.
 
-    return SCMPrior(num_datapoints_max=160, num_features=8, problem=problem, device=device)
+    Held to small tables on purpose. tabicl's own defaults reach 1024 rows by 100 features, and
+    a batch of those through the default model runs the mps allocator out of memory, so the no
+    argument path would not even finish. Pass your own TabICLPrior for the full range.
+    """
+    from tfmplayground.external_priors import TabICLPrior
+
+    return TabICLPrior(
+        num_datapoints_min=129,
+        num_datapoints_max=160,
+        num_features_min=2,
+        num_features_max=8,
+        problem=problem,
+        device=device,
+    )
 
 
 def default_model(problem: str | None) -> TabularFoundationModel:

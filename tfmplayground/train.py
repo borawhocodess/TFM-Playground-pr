@@ -185,11 +185,11 @@ def infer_num_outputs(model: TabularFoundationModel) -> int:
     X_train = torch.randn(1, 8, 4, device=parameter.device, dtype=parameter.dtype)
     y_train = torch.randint(0, 2, (1, 8), device=parameter.device).to(parameter.dtype)
     X_test = torch.randn(1, 4, 4, device=parameter.device, dtype=parameter.dtype)
-    was_training = model.training
-    model.eval()
+    # the model's own mode is left alone. tabicl branches on self.training at every level and
+    # only builds the training path when the whole tree is in it, and no model here carries
+    # running statistics, so a discarded no_grad forward changes nothing whichever mode it is in
     with torch.no_grad():
         out = model(X_train, y_train, X_test)
-    model.train(was_training)
     return out.shape[-1]
 
 
@@ -250,7 +250,7 @@ def train(
 
                 if classification_task:
                     targets = targets.reshape((-1,)).to(torch.long)
-                    output = output.view(-1, output.shape[-1])
+                    output = output.reshape(-1, output.shape[-1])  # tabicl hands back a non contiguous view
 
                 losses = criterion(output, targets)
                 if not torch.isfinite(losses).all():

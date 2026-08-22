@@ -9,6 +9,7 @@ from tfmplayground.models import (
     NanoTabPFNModel,
     TabDPTModel,
     TabFMModel,
+    TabICLModel,
 )
 from tfmplayground.priors import FunctionPrior
 
@@ -66,10 +67,27 @@ def make_nanotabfm():
     return TabFMModel(max_classes=3, is_classifier=True)
 
 
+def make_tabicl(max_classes=3, **kwargs):
+    """The official model, kept as small as its architecture allows."""
+    return TabICLModel(
+        max_classes=max_classes,
+        embed_dim=32,
+        col_num_blocks=1,
+        row_num_blocks=1,
+        icl_num_blocks=1,
+        col_nhead=2,
+        row_nhead=2,
+        icl_nhead=2,
+        col_num_inds=8,
+        row_num_cls=2,
+        **kwargs,
+    )
+
+
 @pytest.mark.parametrize(
     "make_model",
-    [make_nanotabpfn, make_nanotabicl, make_nanotabdpt, make_moddednanotabpfn, make_nanotabfm],
-    ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm"],
+    [make_nanotabpfn, make_nanotabicl, make_nanotabdpt, make_moddednanotabpfn, make_nanotabfm, make_tabicl],
+    ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm", "tabicl"],
 )
 def test_forward_follows_base_contract(make_model):
     """Every model maps (X_train, y_train, X_test) to per-test-row logits."""
@@ -95,8 +113,8 @@ def get_three_class_batch(batch_size, num_datapoints, num_features):
 
 @pytest.mark.parametrize(
     "make_model",
-    [make_nanotabpfn, make_nanotabicl, make_nanotabdpt, make_moddednanotabpfn, make_nanotabfm],
-    ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm"],
+    [make_nanotabpfn, make_nanotabicl, make_nanotabdpt, make_moddednanotabpfn, make_nanotabfm, make_tabicl],
+    ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm", "tabicl"],
 )
 def test_pretrainTFM_swaps_any_model(make_model):
     """Every model drops into pretrainTFM as-is and comes back trained."""
@@ -186,6 +204,10 @@ def make_nanotabfm_regression():
     return TabFMModel(max_classes=0, is_classifier=False, num_outputs=NUM_BUCKETS)
 
 
+def make_tabicl_regression():
+    return make_tabicl(max_classes=0, num_quantiles=NUM_BUCKETS)
+
+
 def get_continuous_batch(batch_size, num_datapoints, num_features, problem=None):
     x = torch.randn(batch_size, num_datapoints, num_features)
     y = 2.0 * x[:, :, 0] - x[:, :, 1]
@@ -211,8 +233,9 @@ def make_regression_prior():
         make_nanotabdpt_regression,
         make_moddednanotabpfn_regression,
         make_nanotabfm_regression,
+        make_tabicl_regression,
     ],
-    ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm"],
+    ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm", "tabicl"],
 )
 def test_pretrainTFM_trains_any_model_for_regression(make_model):
     """Regression goes through every model too, not just the one the other regression tests use."""

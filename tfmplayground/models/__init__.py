@@ -4,6 +4,7 @@ from tfmplayground.models.nanotabdpt import TabDPTModel
 from tfmplayground.models.nanotabfm import TabFMModel
 from tfmplayground.models.nanotabicl import NanoTabICLv2
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
+from tfmplayground.models.tabicl import TabICLModel
 
 __all__ = [
     "TabularFoundationModel",
@@ -12,4 +13,5 @@ __all__ = [
     "TabDPTModel",
     "ModdedNanoTabPFNModel",
     "TabFMModel",
+    "TabICLModel",
 ]

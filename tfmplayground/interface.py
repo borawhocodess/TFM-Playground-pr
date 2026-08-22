@@ -11,7 +11,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OrdinalEncoder
 
 from tfmplayground.models import TabularFoundationModel
-from tfmplayground.utils import get_default_device
+from tfmplayground.utils import QuantileLoss, get_default_device
 
 
 # doing these as lambdas would cause TabularClassifier to not be pickle-able,
@@ -26,13 +26,13 @@ def to_numeric(x):
 
 @contextmanager
 def evaluation_mode(model: torch.nn.Module):
-    """Temporarily put a model in evaluation mode."""
-    was_training = model.training
+    modes = [(module, module.training) for module in model.modules()]
     model.eval()
     try:
         yield
     finally:
-        model.train(was_training)
+        for module, was_training in modes:
+            module.training = was_training
 
 
 def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> ColumnTransformer:
@@ -96,7 +96,6 @@ class TabularClassifier:
         self.device = device
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
-        """Store the context table and encode its labels to contiguous model indices."""
         self.feature_preprocessor = get_feature_preprocessor(X_train)
         self.X_train = self.feature_preprocessor.fit_transform(X_train)
         self.label_encoder = LabelEncoder()
@@ -106,7 +105,6 @@ class TabularClassifier:
         return self
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
-        """Return the original class labels with the highest predicted probability."""
         predicted_probabilities = self.predict_proba(X_test)
         return self.label_encoder.inverse_transform(predicted_probabilities.argmax(axis=1))
 
@@ -139,7 +137,7 @@ class TabularRegressor:
     def __init__(
         self,
         model: TabularFoundationModel,
-        dist: FullSupportBarDistribution | None = None,
+        dist: FullSupportBarDistribution | QuantileLoss | None = None,
         device: str | torch.device | None = None,
     ):
         if device is None:
@@ -147,6 +145,11 @@ class TabularRegressor:
         self.model = model.to(device)
         self.device = device
         self.dist = dist if dist is not None else getattr(model, "dist", None)
+        if self.dist is None:
+            raise ValueError(
+                "TabularRegressor needs a distribution to decode the model's outputs; "
+                "pass dist= or use a model from pretrainTFM, which attaches one"
+            )
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
         """
@@ -174,15 +177,7 @@ class TabularRegressor:
             y_train = torch.from_numpy(self.y_train_n).unsqueeze(0).to(torch.float).to(self.device)
 
             logits = self.model(X_train, y_train, X_test).squeeze(0)
-            if self.dist is not None:
-                preds_n = self.dist.mean(logits)
-            elif logits.shape[-1] == 1:
-                preds_n = logits.squeeze(-1)
-            else:
-                raise ValueError(
-                    "multi-output regression requires a matching distribution or decoder; "
-                    "pass dist= or use a model trained by pretrainTFM with a bar distribution"
-                )
+            preds_n = self.dist.mean(logits)
             preds = preds_n * self.y_train_std + self.y_train_mean
 
         return preds.cpu().numpy()

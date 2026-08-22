@@ -4,7 +4,7 @@ The purpose of this repository is to provide a fully open source playground for 
 It contains much smaller and simpler implementations of several TFM architectures (nanoTabPFN, nanoTabICL, nanoTabDPT, moddedNanoTabPFN, nanoTabFM) as well as a training loop, multiple interfaces to load prior data and an evaluation pipeline. We are planning to rapidly extend the repository with more features, prior interfaces and architectures.
 It is supposed to be a good starting point for students and researchers that are interested in learning about how Tabular foundation models work under the hood.
 
-TFM-Playground currently requires Python 3.12. Clone the repository, then install dependencies via:
+Clone the repository, afterwards install dependencies via:
 ```
 pip install -e .
 ```
@@ -91,9 +91,7 @@ model = pretrainTFM(
 )
 ```
 
-`model` takes an architecture from `tfmplayground/models/`; all bundled models share the same tensor-shape contract. `prior` takes any of our priors, `eval` takes a callback or list of callbacks run at the end of each epoch. `epochs` and `steps_per_epoch` decide how much you sample, because a prior is an endless source and has no length of its own. The loss criterion is inferred from the prior (cross entropy for classification, a bar distribution fitted on its targets for regression) unless you pass one via `criterion`.
-
-The common forward shape does not imply that every architecture supports every criterion and decoder. Classification pretraining is smoke-tested across all five bundled architectures. The documented regression serving path uses `NanoTabPFNModel` with the bar distribution attached by `pretrainTFM`. `TabFMModel` is experimental and is not yet wired to the published Orbax weights.
+`model` takes any architecture from `tfmplayground/models/`, they all share the same forward contract. `prior` takes any of our priors, `eval` takes a callback or list of callbacks run at the end of each epoch. `epochs` and `steps_per_epoch` decide how much you sample, because a prior is an endless source and has no length of its own. The loss criterion is inferred from the prior (cross entropy for classification, a bar distribution fitted on its targets for regression) unless you pass one via `criterion`.
 
 The example above pretrains on [100k pre-generated classification datasets](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_3_100k_classification.h5) with 50 datapoints and 3 features each, downloaded on first use. For regression we offer a pre-generated dataset containing 1.28M tables with 50 datapoints and 3 features each [here](https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_1280k_regression.h5).
 
@@ -138,16 +136,10 @@ prior = DictPrior(
     max_num_classes=3,
 )
 ```
-The external wrappers still speak the older dict shape, because the libraries behind them do. `DictPrior` converts them and restarts a finite wrapped loader when it is exhausted, so `num_steps` controls the length of one sampling cycle rather than the training epoch. The wrapped loader's batch size must match the `batch_size` passed to `pretrainTFM`. You can check out `prior.batch(4)` if you want to see an example batch.
+The external wrappers still speak the older dict shape, because the libraries behind them do. `DictPrior` converts them. You can check out `prior.batch(4)` if you want to see an example batch.
 
 ### Supported Priors
 
 - [TabICL](https://github.com/soda-inria/tabicl) (Classification)
 - [TICL](https://github.com/microsoft/ticl) (Regression, Classification)
 - [TabPFN v1 prior](https://github.com/automl/tabpfn-v1-prior) (Regression, Classification)
-
-### Migration from the script-based API
-
-The pretraining transformation intentionally removed `pretrain_classification.py` and `pretrain_regression.py`. Use `pretrainTFM(problem="classification")` or `pretrainTFM(problem="regression")` and pass callbacks for logging or evaluation.
-
-`NanoTabPFNClassifier` and `NanoTabPFNRegressor` were renamed to the model-agnostic `TabularClassifier` and `TabularRegressor`. The wrappers now require an explicit trained model; checkpoint selection, download, and persistence belong to the calling application. The old external `PriorDataLoader` and `PriorDumpDataLoader` interfaces were replaced by `DictPrior` and `DumpPrior`.

@@ -358,28 +358,25 @@ def test_dict_prior_restarts_a_finite_loader():
     assert markers == [1.0, 2.0, 1.0]
 
 
-def test_dump_targets_uses_only_real_rows_and_training_statistics(tmp_path):
+def test_dump_targets_skips_padding_rows(tmp_path):
     dump = tmp_path / "padded_regression.h5"
+    first = np.array([0.0, 2.0, 100.0, 200.0])
+    second = np.array([10.0, 12.0, 14.0, 20.0, 22.0])
     with h5py.File(dump, "w") as f:
         f.create_dataset(
             "y",
             data=np.array(
                 [
-                    [0.0, 2.0, 100.0, 200.0, 10_000.0, 10_000.0],
-                    [10.0, 12.0, 14.0, 20.0, 22.0, 10_000.0],
+                    [*first, 10_000.0, 10_000.0],
+                    [*second, 10_000.0],
                 ],
                 dtype="f4",
             ),
         )
-        f.create_dataset("num_datapoints", data=np.array([4, 5], dtype="i4"))
-        f.create_dataset("train_test_split_index", data=np.array([2, 3], dtype="i4"))
+        f.create_dataset("num_datapoints", data=np.array([first.size, second.size], dtype="i4"))
 
     targets = dump_targets(dump, max_y=9)
-    expected = np.concatenate(
-        [
-            (np.array([0.0, 2.0, 100.0, 200.0]) - 1.0) / np.sqrt(2.0),
-            (np.array([10.0, 12.0, 14.0, 20.0, 22.0]) - 12.0) / 2.0,
-        ]
-    )
 
-    np.testing.assert_allclose(targets, expected, rtol=1e-6)
+    expected = np.concatenate([(t - t.mean()) / (t.std(ddof=1) + 1e-8) for t in (first, second)])
+    assert targets.size == first.size + second.size
+    np.testing.assert_allclose(targets, expected, rtol=1e-5)

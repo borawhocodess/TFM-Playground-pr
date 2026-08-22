@@ -66,37 +66,27 @@ def make_global_bucket_edges(prior, n_buckets=100, device=None, max_y=5_000_000,
 
 
 def dump_targets(filename, max_y):
-    """Read real targets and normalize them from each table's training split."""
+    """Reads the targets of a dump and z-normalizes every table over all of its real datapoints."""
     with h5py.File(filename, "r") as f:
         y = f["y"]
         num_tables, stored_num_datapoints = y.shape
         lengths = f.get("num_datapoints")
-        split_key = "train_test_split_index" if "train_test_split_index" in f else "single_eval_pos"
-        splits = f[split_key]
         collected = []
         total = 0
 
         for table_index in range(num_tables):
-            length = int(lengths[table_index]) if lengths is not None else stored_num_datapoints
-            split = int(splits[table_index])
-            if not 1 < split <= length:
-                raise ValueError(
-                    f"table {table_index} has invalid training split {split} for {length} datapoints"
-                )
-
-            values = np.asarray(y[table_index, :length], dtype=np.float32)
-            train_values = values[:split]
-            mean = train_values.mean()
-            std = train_values.std(ddof=1) + 1e-8
-            normalized = (values - mean) / std
-
-            remaining = max_y - total
-            if remaining <= 0:
+            if total >= max_y:
                 break
-            collected.append(normalized[:remaining])
-            total += min(normalized.size, remaining)
+            # tables shorter than the longest one are zero-padded in the dump, those rows are not targets
+            length = int(lengths[table_index]) if lengths is not None else stored_num_datapoints
+            values = np.asarray(y[table_index, :length], dtype=np.float32)
+            normalized = (values - values.mean()) / (values.std(ddof=1) + 1e-8)
+            collected.append(normalized[: max_y - total])
+            total += min(normalized.size, max_y - total)
 
-    return np.concatenate(collected) if collected else np.array([], dtype=np.float32)
+    if not collected:
+        raise ValueError(f"{filename} holds no targets to fit bucket edges on.")
+    return np.concatenate(collected)
 
 
 def sampled_targets(prior, max_y, batch_size=8, max_batches=25):
@@ -135,3 +125,6 @@ class QuantileLoss(nn.Module):
         error = target.unsqueeze(-1) - logits
         losses = torch.maximum(alphas * error, (alphas - 1.0) * error)
         return losses.sum(dim=-1)
+
+    def mean(self, logits: torch.Tensor) -> torch.Tensor:
+        return logits.mean(dim=-1)

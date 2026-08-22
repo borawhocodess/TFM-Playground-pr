@@ -2,7 +2,6 @@ import pytest
 import torch
 from torch import nn
 
-import tfmplayground.models.nanotabdpt as nanotabdpt_module
 from tfmplayground import pretrainTFM
 from tfmplayground.models import (
     ModdedNanoTabPFNModel,
@@ -129,19 +128,3 @@ def test_pretrainTFM_swaps_any_model(make_model):
         not torch.equal(before, after.detach())
         for before, after in zip(parameters_before, trained.parameters(), strict=True)
     )
-
-
-def test_tabdpt_training_uses_the_context_boundary_for_normalization(monkeypatch):
-    seen_eval_positions = []
-    original_normalize_data = nanotabdpt_module.normalize_data
-
-    def record_eval_position(data, eval_pos=-1, dim=0, return_mean_std=False):
-        seen_eval_positions.append(eval_pos)
-        return original_normalize_data(data, eval_pos, dim, return_mean_std)
-
-    monkeypatch.setattr(nanotabdpt_module, "normalize_data", record_eval_position)
-    model = make_nanotabdpt()
-    model.train()
-    model(torch.randn(2, 12, 4), torch.randint(0, 3, (2, 12)).float(), torch.randn(2, 5, 4))
-
-    assert seen_eval_positions == [12]

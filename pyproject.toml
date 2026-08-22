@@ -30,13 +30,11 @@ dependencies = [
     "tabicl[pretrain]>=2.1.0",
     "ticl @ git+https://github.com/microsoft/ticl.git@main",
     "tabpfn-v1-prior @ git+https://github.com/automl/tabpfn-v1-prior.git",
-    "interpret",
-    "numba",
     "mlflow",
+    "wandb>=0.20",
 ]
 
 [project.optional-dependencies]
-wandb = ["wandb>=0.20"]
 tensorboard = ["tensorboard>=2.19"]
 [project.urls]
 Homepage = "https://github.com/automl/TFM-Playground"
@@ -63,12 +61,20 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# vendored google code, kept byte-faithful to upstream
-"tfmplayground/models/nanotabfm.py" = ["F401", "UP006", "UP035", "SIM108"]
-# vendored NanoTabICL code, kept close to upstream
-"tfmplayground/models/nanotabicl.py" = ["E401", "I001", "UP045"]
-# paper-source annotations are intentionally kept beside their sampled values
-"tfmplayground/prior.py" = ["E501"]
+"tfmplayground/models/nanotabfm.py" = [
+    "F401",   # unused import
+    "UP006",  # non-pep585 annotation
+    "UP035",  # deprecated import
+    "SIM108", # if-else block instead of if-exp
+]
+"tfmplayground/models/nanotabicl.py" = [
+    "E401",  # multiple imports on one line
+    "I001",  # unsorted imports
+    "UP045", # non-pep604 annotation optional
+]
+"tfmplayground/prior.py" = [
+    "E501", # line too long
+]
 
 [tool.ruff.format]
 quote-style = "double"

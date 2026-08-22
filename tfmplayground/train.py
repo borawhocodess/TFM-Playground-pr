@@ -190,24 +190,6 @@ def train(
     callbacks: list[Callback] = None,
     multi_gpu: bool = False,
 ):
-    """
-    Trains our model on the given prior using the given criterion.
-
-    Args:
-        model: (TabularFoundationModel) our PyTorch model
-        prior: (Prior) the prior we sample our pretraining batches from
-        criterion: (nn.CrossEntropyLoss | FullSupportBarDistribution) our loss criterion
-        epochs: (int) the number of epochs we train for
-        steps_per_epoch: (int) the number of batches that make up an epoch
-        batch_size: (int) the number of tables per batch
-        accumulate_gradients: (int) the number of gradients to accumulate before updating the weights
-        device: (torch.device) the device we are using
-        callbacks: A list of callback instances to execute at the end of each epoch. These can be used for
-            logging, validation, or other custom actions.
-
-    Returns:
-        (torch.Tensor) a tensor of shape (num_rows, batch_size, num_features, embedding_size)
-    """
     if multi_gpu:
         model = nn.DataParallel(model)
     if callbacks is None:

@@ -137,7 +137,14 @@ class DictPrior(Prior):
         )
 
     def batch(self, batch_size: int | None = None) -> Batch:
-        d = next(self.batches)
+        try:
+            d = next(self.batches)
+        except StopIteration:
+            self.batches = iter(self.loader)
+            try:
+                d = next(self.batches)
+            except StopIteration as error:
+                raise RuntimeError("the wrapped prior loader yielded no batches") from error
         sep = int(d["train_test_split_index"])
         x, y, target_y = d["x"], d["y"], d["target_y"]
         # the wrapped loader fixes its own batch size, so we only check the one we are given

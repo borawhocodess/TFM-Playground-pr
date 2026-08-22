@@ -477,9 +477,11 @@ def test_pinned_tabicl_exposes_the_regression_prior_api():
 def test_legacy_prior_module_reexports_the_moved_api():
     from tfmplayground.prior import DumpPrior as LegacyDumpPrior
     from tfmplayground.prior import Prior as LegacyPrior
+    from tfmplayground.prior import hyperparameters
 
     assert LegacyDumpPrior is DumpPrior
     assert LegacyPrior.__module__ == "tfmplayground.priors.base"
+    assert callable(hyperparameters)
 
 
 def test_tabicl_prior_rejects_the_broken_parallel_sampler():
@@ -503,6 +505,8 @@ def test_tabicl_batch_keeps_features_used_after_the_first_table():
     x, _, split = sample_table(Dataset(), torch.device("cpu"))
 
     assert x.shape == (2, 5, 4)
+    assert torch.equal(x[0, :, 2:], torch.zeros(5, 2))
+    assert torch.count_nonzero(x[1, :, 2:]) > 0
     assert split == 3
 
 

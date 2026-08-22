@@ -439,6 +439,46 @@ def test_fixed_bin_decoder_matches_the_official_tabdpt_expectation():
     assert predictions[1].item() == pytest.approx(-1.0)
 
 
+def test_fixed_bin_crps_penalizes_distant_probability_mass_more():
+    distribution = FixedBinDistribution(torch.tensor([-2.0, -1.0, 0.0, 1.0, 2.0]))
+    target = torch.tensor([1.5])
+    near_logits = torch.tensor([[-20.0, -20.0, -20.0, 20.0]])
+    far_logits = torch.tensor([[20.0, -20.0, -20.0, -20.0]])
+
+    assert distribution(near_logits, target).item() < distribution(far_logits, target).item()
+
+
+def test_first_contract_draft_output_kind_remains_supported():
+    class LegacyQuantileModel(NanoTabPFNModel):
+        output_kind = "quantiles"
+
+    model = LegacyQuantileModel(
+        embedding_size=16,
+        num_attention_heads=2,
+        mlp_hidden_size=32,
+        num_layers=2,
+        num_outputs=NUM_BUCKETS,
+    )
+
+    assert model_output_kind(model, "regression") == "quantiles"
+    assert isinstance(infer_criterion(model, make_regression_prior(), "cpu", "regression"), QuantileLoss)
+
+
+def test_scalar_regression_keeps_its_contract_when_data_parallel_wraps_the_model():
+    trained = pretrainTFM(
+        model=make_nanotabfm_regression(),
+        prior=make_regression_prior(),
+        eval=[],
+        epochs=1,
+        steps_per_epoch=1,
+        batch_size=2,
+        device="cpu",
+        multi_gpu=True,
+    )
+
+    assert infer_num_outputs(trained) == 1
+
+
 def test_tabicl_evaluation_disables_numeric_attention_dropout():
     torch.manual_seed(0)
     model = make_tabicl(dropout=0.2)

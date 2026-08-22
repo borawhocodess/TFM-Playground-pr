@@ -25,11 +25,12 @@ class TabICLModel(TabularFoundationModel):
         **kwargs: passed through to tabicl, see TabICL for the architecture settings.
     """
 
-    output_kind = "quantiles"  # tabicl's own docs: at max_classes=0 it regresses by quantiles
-
     def __init__(self, max_classes: int = 10, num_quantiles: int = 999, **kwargs):
         super().__init__()
-        self.problems = ("classification",) if max_classes > 0 else ("regression",)
+        problem = "classification" if max_classes > 0 else "regression"
+        self.problems = (problem,)
+        self.output_kinds = {problem: "class_logits" if max_classes > 0 else "quantiles"}
+        self.num_outputs = max_classes if max_classes > 0 else num_quantiles
         self.model = TabICL(max_classes=max_classes, num_quantiles=num_quantiles, **kwargs)
 
     def forward(self, X_train: torch.Tensor, y_train: torch.Tensor, X_test: torch.Tensor) -> torch.Tensor:
@@ -39,12 +40,20 @@ class TabICLModel(TabularFoundationModel):
         # always take the training path, the one tabicl's own trainer runs. dropout is put back
         # under our own mode afterwards so predicting through a trained model stays deterministic.
         modes = [(module, module.training) for module in self.model.modules()]
+        dropout_values = []
         self.model.train()
-        for module in self.model.modules():
-            if isinstance(module, torch.nn.Dropout):
-                module.train(self.training)
+        if not self.training:
+            for module in self.model.modules():
+                if isinstance(module, torch.nn.Dropout):
+                    module.train(False)
+                dropout = getattr(module, "dropout", None)
+                if isinstance(dropout, int | float):
+                    dropout_values.append((module, dropout))
+                    module.dropout = 0.0
         try:
             return self.model(torch.cat([X_train, X_test], dim=1), y_train)
         finally:
+            for module, dropout in dropout_values:
+                module.dropout = dropout
             for module, was_training in modes:
                 module.training = was_training

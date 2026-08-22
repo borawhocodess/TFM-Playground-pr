@@ -5,6 +5,7 @@ import h5py
 import numpy as np
 import requests
 import torch
+import torch.nn.functional as F
 from pfns.bar_distribution import get_bucket_limits
 from torch import nn
 
@@ -112,8 +113,48 @@ def sampled_targets(prior, max_y, batch_size=8, max_batches=25):
     return np.concatenate(collected)
 
 
+class FixedBinDistribution(nn.Module):
+    """Categorical loss and expectation decoder over model-defined finite bins."""
+
+    output_kind = "fixed_bin_logits"
+
+    def __init__(self, borders: torch.Tensor):
+        super().__init__()
+        borders = torch.as_tensor(borders, dtype=torch.float32)
+        if borders.ndim != 1 or borders.numel() < 2:
+            raise ValueError("borders must be a one-dimensional tensor with at least two values")
+        if not torch.all(borders[1:] > borders[:-1]):
+            raise ValueError("borders must be strictly increasing")
+        self.register_buffer("borders", borders)
+
+    def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        if logits.shape[-1] != self.borders.numel() - 1:
+            raise ValueError(
+                f"logits have {logits.shape[-1]} bins but the distribution has {self.borders.numel() - 1}"
+            )
+        bins = torch.bucketize(target.contiguous(), self.borders[1:-1])
+        losses = F.cross_entropy(logits.reshape(-1, logits.shape[-1]), bins.reshape(-1), reduction="none")
+        return losses.reshape(target.shape)
+
+    def mean(self, logits: torch.Tensor) -> torch.Tensor:
+        centres = (self.borders[:-1] + self.borders[1:]) / 2
+        probabilities = torch.softmax(logits.float(), dim=-1)
+        return (probabilities * centres).sum(dim=-1)
+
+
+class ScalarMSELoss(nn.MSELoss):
+    """Elementwise MSE for a model that emits one scalar per row."""
+
+    output_kind = "scalar"
+
+    def __init__(self):
+        super().__init__(reduction="none")
+
+
 class QuantileLoss(nn.Module):
     """Pinball loss summed over a fixed grid of quantile levels."""
+
+    output_kind = "quantiles"
 
     def __init__(self, n_quantiles: int):
         super().__init__()

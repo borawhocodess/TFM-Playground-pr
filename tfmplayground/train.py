@@ -7,11 +7,15 @@ from torch import nn
 
 from tfmplayground.callbacks import Callback, ConsoleLoggerCallback
 from tfmplayground.models import NanoTabPFNModel, TabularFoundationModel
-from tfmplayground.models.base import OUTPUT_KINDS
+from tfmplayground.models.base import OUTPUT_KINDS, PROBLEMS
 from tfmplayground.priors import Prior, PriorDataLoader
-from tfmplayground.utils import QuantileLoss, get_default_device, make_global_bucket_edges
-
-PROBLEMS = ("classification", "regression")
+from tfmplayground.utils import (
+    FixedBinDistribution,
+    QuantileLoss,
+    ScalarMSELoss,
+    get_default_device,
+    make_global_bucket_edges,
+)
 
 DUMP_URLS = {
     "classification": "https://ml.informatik.uni-freiburg.de/research-artifacts/pfefferle/TFM-Playground/50x3_3_100k_classification.h5",
@@ -25,7 +29,12 @@ def pretrainTFM(
     eval: Callback | list[Callback] | None = None,
     regime=None,
     problem: str | None = None,
-    criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss | None = None,
+    criterion: nn.CrossEntropyLoss
+    | FullSupportBarDistribution
+    | FixedBinDistribution
+    | QuantileLoss
+    | nn.MSELoss
+    | None = None,
     epochs: int = 100,
     steps_per_epoch: int = 25,
     batch_size: int = 4,
@@ -86,15 +95,20 @@ def pretrainTFM(
     check_model_problem(model, problem)
     if criterion is None:
         criterion = infer_criterion(model, prior, device, problem)
+    output_kind = model_output_kind(model, problem)
+    check_criterion_output_kind(model, criterion, output_kind)
     num_outputs = infer_num_outputs(model)
     max_num_classes = getattr(prior, "max_num_classes", None)
     if isinstance(criterion, nn.CrossEntropyLoss) and max_num_classes and int(max_num_classes) > num_outputs:
         raise ValueError(
             f"the prior holds up to {int(max_num_classes)} classes but the model has {num_outputs} outputs"
         )
-    if isinstance(criterion, FullSupportBarDistribution) and criterion.borders.numel() - 1 != num_outputs:
+    if isinstance(criterion, FullSupportBarDistribution | FixedBinDistribution) and (
+        criterion.borders.numel() - 1 != num_outputs
+    ):
+        units = "buckets" if isinstance(criterion, FullSupportBarDistribution) else "bins"
         raise ValueError(
-            f"the criterion has {criterion.borders.numel() - 1} buckets but the model has {num_outputs} outputs"
+            f"the criterion has {criterion.borders.numel() - 1} {units} but the model has {num_outputs} outputs"
         )
     if isinstance(criterion, QuantileLoss) and criterion.alphas.numel() != num_outputs:
         raise ValueError(
@@ -163,7 +177,7 @@ def default_model(problem: str | None) -> TabularFoundationModel:
 
 def infer_criterion(
     model: TabularFoundationModel, prior: Prior, device: torch.device, problem: str | None = None
-) -> nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss:
+) -> nn.CrossEntropyLoss | FullSupportBarDistribution | FixedBinDistribution | QuantileLoss | nn.MSELoss:
     """
     Picks a loss criterion based on the problem or what the prior provides: cross entropy for classification,
     a bar distribution fitted on the targets of a regression prior and a quantile loss otherwise.
@@ -176,7 +190,7 @@ def infer_criterion(
     # the shape of a regression head does not say what it means, so the model declares it. a
     # quantile head trained under a bar distribution has its outputs read as bucket logits, which
     # trains against the wrong objective without ever failing
-    output_kind = getattr(model, "output_kind", "bar")
+    output_kind = model_output_kind(model, problem or "regression")
     if output_kind == "quantiles":
         return QuantileLoss(num_outputs)
     if output_kind == "fixed_bin_logits":
@@ -186,18 +200,51 @@ def infer_criterion(
                 f"{type(model).__name__} declares fixed_bin_logits but has no regression_borders(), "
                 "so there is nothing to say what its bins are"
             )
-        # the model fixed these bins when it was built, so fitting new ones from the prior would
-        # hand its channels ranges it never meant. the tails are ours, upstream decodes the
-        # centres directly, but the edges are the model's
-        return FullSupportBarDistribution(borders().to(device))
+        return FixedBinDistribution(borders().to(device))
     if output_kind == "scalar":
-        raise NotImplementedError(
-            f"{type(model).__name__} declares a scalar regression head, which upstream trains "
-            "under mse. nothing here fits that yet, so pass criterion= yourself"
-        )
-    if output_kind != "bar":
+        return ScalarMSELoss()
+    if output_kind != "bar_logits":
         raise ValueError(f"output_kind must be one of {sorted(OUTPUT_KINDS)}, got {output_kind!r}")
     return FullSupportBarDistribution(make_global_bucket_edges(prior, n_buckets=num_outputs, device=device))
+
+
+def model_output_kind(model: TabularFoundationModel, problem: str | None) -> str:
+    """Return the declared meaning of a model's outputs for one problem."""
+    if problem is None:
+        problems = getattr(model, "problems", PROBLEMS)
+        problem = problems[0] if len(problems) == 1 else "regression"
+    output_kinds = getattr(model, "output_kinds", None)
+    if output_kinds is not None and problem in output_kinds:
+        output_kind = output_kinds[problem]
+    else:
+        # Compatibility for third-party models written against the first contract draft.
+        output_kind = getattr(model, "output_kind", "bar_logits")
+        if output_kind == "bar":
+            output_kind = "bar_logits"
+    if output_kind not in OUTPUT_KINDS:
+        raise ValueError(f"output_kind must be one of {sorted(OUTPUT_KINDS)}, got {output_kind!r}")
+    return output_kind
+
+
+def check_criterion_output_kind(model: TabularFoundationModel, criterion: nn.Module, expected: str) -> None:
+    """Reject a criterion that interprets the model's output channels differently."""
+    if isinstance(criterion, nn.CrossEntropyLoss):
+        actual = "class_logits"
+    elif isinstance(criterion, FixedBinDistribution):
+        actual = "fixed_bin_logits"
+    elif isinstance(criterion, FullSupportBarDistribution):
+        actual = "bar_logits"
+    elif isinstance(criterion, QuantileLoss):
+        actual = "quantiles"
+    elif isinstance(criterion, nn.MSELoss):
+        actual = "scalar"
+    else:
+        actual = getattr(criterion, "output_kind", None)
+    if actual != expected:
+        raise ValueError(
+            f"{type(model).__name__} emits {expected}, but {type(criterion).__name__} expects "
+            f"{actual or 'an undeclared output kind'}"
+        )
 
 
 def check_model_problem(model: TabularFoundationModel, problem: str | None):
@@ -219,7 +266,13 @@ def check_model_problem(model: TabularFoundationModel, problem: str | None):
 
 
 def infer_num_outputs(model: TabularFoundationModel) -> int:
-    """Runs a tiny forward pass to find out how many outputs the model produces per test row."""
+    """Read the declared output width, with a probe fallback for third-party models."""
+    num_outputs = getattr(model, "num_outputs", None)
+    if num_outputs is not None:
+        if int(num_outputs) < 1:
+            raise ValueError(f"num_outputs must be positive, got {num_outputs}")
+        return int(num_outputs)
+
     parameter = next(model.parameters())
     X_train = torch.randn(1, 8, 4, device=parameter.device, dtype=parameter.dtype)
     y_train = torch.randint(0, 2, (1, 8), device=parameter.device).to(parameter.dtype)
@@ -235,7 +288,11 @@ def infer_num_outputs(model: TabularFoundationModel) -> int:
 def train(
     model: TabularFoundationModel,
     prior: Prior,
-    criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss,
+    criterion: nn.CrossEntropyLoss
+    | FullSupportBarDistribution
+    | FixedBinDistribution
+    | QuantileLoss
+    | nn.MSELoss,
     epochs: int,
     steps_per_epoch: int = 25,
     batch_size: int = 4,
@@ -251,9 +308,11 @@ def train(
     if not device:
         device = get_default_device()
     model.to(device)
+    criterion = criterion.to(device)
     optimizer = schedulefree.AdamWScheduleFree(model.parameters(), lr=lr, weight_decay=0.0)
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
+    output_kind = model_output_kind(model, "classification" if classification_task else "regression")
 
     batches = iter(PriorDataLoader(prior, batch_size))
 
@@ -290,6 +349,10 @@ def train(
                 if classification_task:
                     targets = targets.reshape((-1,)).to(torch.long)
                     output = output.reshape(-1, output.shape[-1])  # tabicl hands back a non contiguous view
+                elif output_kind == "scalar":
+                    if output.shape[-1] != 1:
+                        raise ValueError(f"a scalar model must return one output, got {output.shape[-1]}")
+                    output = output.squeeze(-1)
 
                 losses = criterion(output, targets)
                 if not torch.isfinite(losses).all():

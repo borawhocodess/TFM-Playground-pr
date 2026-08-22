@@ -85,8 +85,6 @@ def clip_outliers(data, eval_pos=-1, n_sigma=4, dim=0):
 
 
 class TabDPTModel(TabularFoundationModel):
-    output_kind = "fixed_bin_logits"  # the regression section decodes against its own fixed bins
-
     def __init__(
         self,
         dropout: float,
@@ -154,7 +152,10 @@ class TabDPTModel(TabularFoundationModel):
         # upstream's training repo regresses one scalar channel under mse. this copy comes from
         # the v1.2 inference release, where the head carries a separate section of bin logits and
         # the regressor decodes them against evenly spaced centres between the two bounds below
-        self.problems = ("classification",) if classification else ("regression",)
+        problem = "classification" if classification else "regression"
+        self.problems = (problem,)
+        self.output_kinds = {problem: "class_logits" if classification else "fixed_bin_logits"}
+        self.num_outputs = n_out if classification else regression_bin_count
         self.classification = classification
 
     def regression_borders(self) -> torch.Tensor:

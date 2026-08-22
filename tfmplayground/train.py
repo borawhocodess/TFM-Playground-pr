@@ -83,6 +83,15 @@ def pretrainTFM(
     if criterion is None:
         criterion = infer_criterion(model, prior, device, problem)
     num_outputs = infer_num_outputs(model)
+    if not isinstance(criterion, nn.CrossEntropyLoss):
+        lookups = discrete_y_encoders(model)
+        if lookups:
+            raise ValueError(
+                f"{type(model).__name__} looks y up in an embedding table "
+                f"({', '.join(lookups)}), which only holds class indices, so it cannot take "
+                "continuous targets. build it for regression instead, which for nanotabicl and "
+                "nanotabfm means max_classes=0 and an out_dim of however many buckets you want"
+            )
     max_num_classes = getattr(prior, "max_num_classes", None)
     if isinstance(criterion, nn.CrossEntropyLoss) and max_num_classes and int(max_num_classes) > num_outputs:
         raise ValueError(
@@ -159,6 +168,15 @@ def infer_criterion(
     if problem == "regression" or getattr(prior, "filename", None) is not None:
         return FullSupportBarDistribution(make_global_bucket_edges(prior, n_buckets=num_outputs, device=device))
     return QuantileLoss(num_outputs)
+
+
+def discrete_y_encoders(model: TabularFoundationModel) -> list[str]:
+    """Names of the embedding tables a model looks y up in, which only ever hold class indices."""
+    return [
+        name
+        for name, module in model.named_modules()
+        if isinstance(module, nn.Embedding) and "y" in name.rsplit(".", 1)[-1].split("_")
+    ]
 
 
 def infer_num_outputs(model: TabularFoundationModel) -> int:

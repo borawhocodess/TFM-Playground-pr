@@ -13,8 +13,8 @@ from tfmplayground.models import (
     TabICLModel,
 )
 from tfmplayground.priors import FunctionPrior
-from tfmplayground.train import infer_criterion
-from tfmplayground.utils import QuantileLoss
+from tfmplayground.train import infer_criterion, infer_num_outputs, model_output_kind
+from tfmplayground.utils import FixedBinDistribution, QuantileLoss
 
 
 def make_nanotabpfn():
@@ -204,7 +204,7 @@ def make_moddednanotabpfn_regression():
 
 
 def make_nanotabfm_regression():
-    return TabFMModel(max_classes=0, is_classifier=False, num_outputs=NUM_BUCKETS)
+    return TabFMModel(max_classes=0, is_classifier=False, num_outputs=1)
 
 
 def make_tabicl_regression():
@@ -229,18 +229,18 @@ def make_regression_prior():
 
 
 @pytest.mark.parametrize(
-    "make_model",
+    "make_model, num_outputs, has_decoder",
     [
-        make_nanotabpfn_regression,
-        make_nanotabicl_regression,
-        make_nanotabdpt_regression,
-        make_moddednanotabpfn_regression,
-        make_nanotabfm_regression,
-        make_tabicl_regression,
+        (make_nanotabpfn_regression, NUM_BUCKETS, True),
+        (make_nanotabicl_regression, NUM_BUCKETS, True),
+        (make_nanotabdpt_regression, NUM_BUCKETS, True),
+        (make_moddednanotabpfn_regression, NUM_BUCKETS, True),
+        (make_nanotabfm_regression, 1, False),
+        (make_tabicl_regression, NUM_BUCKETS, True),
     ],
     ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm", "tabicl"],
 )
-def test_pretrainTFM_trains_any_model_for_regression(make_model):
+def test_pretrainTFM_trains_any_model_for_regression(make_model, num_outputs, has_decoder):
     """Regression goes through every model too, not just the one the other regression tests use."""
     torch.manual_seed(0)
     model = make_model()
@@ -255,10 +255,10 @@ def test_pretrainTFM_trains_any_model_for_regression(make_model):
         device="cpu",
     )
 
-    assert trained.dist is not None
+    assert hasattr(trained, "dist") is has_decoder
     with torch.no_grad():
         out = trained(torch.randn(2, 12, 4), torch.randn(2, 12), torch.randn(2, 5, 4))
-    assert out.shape == (2, 5, NUM_BUCKETS)
+    assert out.shape == (2, 5, num_outputs)
     assert torch.isfinite(out).all()
     assert any(
         not torch.equal(before, after.detach())
@@ -301,11 +301,11 @@ def test_pretrainTFM_rejects_a_model_built_for_the_other_problem(make_model, pro
 @pytest.mark.parametrize(
     "make_model, kind",
     [
-        (make_nanotabpfn_regression, "bar"),
+        (make_nanotabpfn_regression, "bar_logits"),
         (make_nanotabicl_regression, "quantiles"),
         (make_nanotabdpt_regression, "fixed_bin_logits"),
-        (make_moddednanotabpfn_regression, "bar"),
-        (make_nanotabfm_regression, "bar"),
+        (make_moddednanotabpfn_regression, "bar_logits"),
+        (make_nanotabfm_regression, "scalar"),
         (make_tabicl_regression, "quantiles"),
     ],
     ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm", "tabicl"],
@@ -316,9 +316,15 @@ def test_regression_criterion_follows_the_declared_head(make_model, kind):
     against the wrong objective and never fails, so the model declares what its outputs are.
     """
     model = make_model()
-    assert model.output_kind == kind
+    assert model_output_kind(model, "regression") == kind
     criterion = infer_criterion(model, make_regression_prior(), "cpu", problem="regression")
-    assert isinstance(criterion, QuantileLoss if kind == "quantiles" else FullSupportBarDistribution)
+    criterion_type = {
+        "bar_logits": FullSupportBarDistribution,
+        "fixed_bin_logits": FixedBinDistribution,
+        "quantiles": QuantileLoss,
+        "scalar": nn.MSELoss,
+    }[kind]
+    assert isinstance(criterion, criterion_type)
     if kind == "fixed_bin_logits":
         # the model's own bins, not edges fitted from the prior, which would mean something else
         assert torch.equal(criterion.borders.cpu(), model.regression_borders())
@@ -356,7 +362,93 @@ def test_fixed_bins_are_not_refitted_from_the_prior():
 def test_a_model_without_its_borders_cannot_claim_fixed_bins():
     """The declaration is a promise to say what the bins are, so an empty promise is an error."""
     model = make_nanotabpfn_regression()
-    model.output_kind = "fixed_bin_logits"
+    model.output_kinds = {"regression": "fixed_bin_logits"}
 
     with pytest.raises(ValueError, match="no regression_borders"):
         infer_criterion(model, make_regression_prior(), "cpu", problem="regression")
+
+
+@pytest.mark.parametrize(
+    "make_model, criterion",
+    [
+        (make_nanotabpfn_regression, QuantileLoss(NUM_BUCKETS)),
+        (
+            make_nanotabicl_regression,
+            FullSupportBarDistribution(torch.linspace(-3, 3, NUM_BUCKETS + 1)),
+        ),
+        (
+            make_nanotabdpt_regression,
+            FullSupportBarDistribution(torch.linspace(-3, 3, NUM_BUCKETS + 1)),
+        ),
+        (make_nanotabfm_regression, QuantileLoss(1)),
+    ],
+    ids=["bar-as-quantiles", "quantiles-as-bar", "fixed-bins-as-bar", "scalar-as-quantiles"],
+)
+def test_pretrainTFM_rejects_a_criterion_for_another_output_kind(make_model, criterion):
+    with pytest.raises(ValueError, match="emits"):
+        pretrainTFM(
+            model=make_model(),
+            prior=make_regression_prior(),
+            criterion=criterion,
+            eval=[],
+            epochs=1,
+            steps_per_epoch=1,
+            batch_size=2,
+            device="cpu",
+        )
+
+
+@pytest.mark.parametrize(
+    "make_model",
+    [
+        make_nanotabpfn,
+        make_nanotabicl,
+        make_nanotabdpt,
+        make_moddednanotabpfn,
+        make_nanotabfm,
+        make_tabicl,
+        make_nanotabpfn_regression,
+        make_nanotabicl_regression,
+        make_nanotabdpt_regression,
+        make_moddednanotabpfn_regression,
+        make_nanotabfm_regression,
+        make_tabicl_regression,
+    ],
+)
+def test_bundled_models_declare_their_output_width(make_model):
+    model = make_model()
+    assert model.num_outputs is not None
+    assert infer_num_outputs(model) == model.num_outputs
+
+
+@pytest.mark.parametrize(
+    "make_model",
+    [make_nanotabpfn, make_nanotabicl, make_nanotabdpt, make_moddednanotabpfn, make_nanotabfm, make_tabicl],
+)
+def test_classification_models_declare_class_logits(make_model):
+    assert model_output_kind(make_model(), "classification") == "class_logits"
+
+
+def test_fixed_bin_decoder_matches_the_official_tabdpt_expectation():
+    distribution = FixedBinDistribution(torch.tensor([-2.0, 0.0, 2.0]))
+    logits = torch.tensor([[0.0, 0.0], [20.0, -20.0]])
+
+    predictions = distribution.mean(logits)
+
+    assert predictions[0].item() == pytest.approx(0.0)
+    assert predictions[1].item() == pytest.approx(-1.0)
+
+
+def test_tabicl_evaluation_disables_numeric_attention_dropout():
+    torch.manual_seed(0)
+    model = make_tabicl(dropout=0.2)
+    model.eval()
+    X_train = torch.randn(2, 12, 4)
+    y_train = torch.randint(0, 3, (2, 12)).float()
+    X_test = torch.randn(2, 5, 4)
+
+    with torch.no_grad():
+        first = model(X_train, y_train, X_test)
+        second = model(X_train, y_train, X_test)
+
+    torch.testing.assert_close(first, second, rtol=0, atol=0)

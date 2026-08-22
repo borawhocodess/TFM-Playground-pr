@@ -1,4 +1,5 @@
 import h5py
+import inspect
 import numpy as np
 import pytest
 import torch
@@ -202,8 +203,10 @@ def test_model_head_contradicting_criterion_raises(tmp_path):
             criterion=FullSupportBarDistribution(torch.linspace(-3, 3, 101)),
             device="cpu",
         )
+    quantile_model = make_tiny_model(num_outputs=8)
+    quantile_model.output_kinds = {"regression": "quantiles"}
     with pytest.raises(ValueError, match="99 quantiles but the model has 8"):
-        pretrainTFM(model=make_tiny_model(num_outputs=8), prior=prior, criterion=QuantileLoss(99), device="cpu")
+        pretrainTFM(model=quantile_model, prior=prior, criterion=QuantileLoss(99), device="cpu")
 
 
 def test_model_head_contradicting_prior_classes_raises(tmp_path):
@@ -396,8 +399,10 @@ def test_dump_targets_skips_padding_rows(tmp_path):
 
 def test_quantile_trained_model_carries_its_decoder():
     prior = SCMPrior(num_datapoints_max=160, num_features=4, problem="regression", device="cpu")
+    model = make_tiny_model(5)
+    model.output_kinds = {"regression": "quantiles"}
     trained = pretrainTFM(
-        model=make_tiny_model(5),
+        model=model,
         prior=prior,
         criterion=QuantileLoss(5),
         eval=[],
@@ -460,6 +465,44 @@ def test_single_row_classification_context_does_not_poison_the_model():
             batch_size=2,
             device="cpu",
         )
+
+
+def test_pinned_tabicl_exposes_the_regression_prior_api():
+    from tabicl.prior import PriorDataset
+
+    assert "regression" in inspect.signature(PriorDataset.__init__).parameters
+
+
+def test_legacy_prior_module_reexports_the_moved_api():
+    from tfmplayground.prior import DumpPrior as LegacyDumpPrior
+    from tfmplayground.prior import Prior as LegacyPrior
+
+    assert LegacyDumpPrior is DumpPrior
+    assert LegacyPrior.__module__ == "tfmplayground.priors.base"
+
+
+def test_tabicl_prior_rejects_the_broken_parallel_sampler():
+    from tfmplayground.external_priors.tabicl import TabICLPrior
+
+    with pytest.raises(ValueError, match="n_jobs=1"):
+        TabICLPrior(n_jobs=2)
+
+
+def test_tabicl_batch_keeps_features_used_after_the_first_table():
+    from tfmplayground.external_priors.tabicl import sample_table
+
+    class Dataset:
+        def __next__(self):
+            x = torch.arange(2 * 5 * 6, dtype=torch.float32).reshape(2, 5, 6)
+            y = torch.zeros(2, 5)
+            active_features = torch.tensor([2, 4])
+            train_size = torch.tensor([3, 3])
+            return x, y, active_features, None, train_size
+
+    x, _, split = sample_table(Dataset(), torch.device("cpu"))
+
+    assert x.shape == (2, 5, 4)
+    assert split == 3
 
 
 def test_modded_nano_prior_follows_the_batch_contract():

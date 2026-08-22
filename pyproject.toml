@@ -72,6 +72,12 @@ ignore = [
     "I001",  # unsorted imports
     "UP045", # non-pep604 annotation optional
 ]
+"tfmplayground/priors/nanotabicl.py" = [
+    "B905",  # zip without an explicit strict
+    "E401",  # multiple imports on one line
+    "E501",  # line too long
+    "I001",  # unsorted imports
+]
 "tfmplayground/priors/scm.py" = [
     "E501", # line too long
 ]

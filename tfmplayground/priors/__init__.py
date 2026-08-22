@@ -10,6 +10,7 @@ from tfmplayground.priors.base import (
 )
 from tfmplayground.priors.dump import DumpPrior, dump_prior_to_h5
 from tfmplayground.priors.modded import ModdedNanoPrior
+from tfmplayground.priors.nanotabicl import NanoTabICLPrior
 from tfmplayground.priors.scm import SCMPrior, get_batch
 
 __all__ = [
@@ -19,6 +20,7 @@ __all__ = [
     "DumpPrior",
     "FunctionPrior",
     "ModdedNanoPrior",
+    "NanoTabICLPrior",
     "Prior",
     "PriorDataLoader",
     "SCMPrior",

@@ -14,6 +14,7 @@ from tfmplayground.priors import (
     DumpPrior,
     FunctionPrior,
     ModdedNanoPrior,
+    NanoTabICLPrior,
     SCMPrior,
 )
 from tfmplayground.train import default_prior, infer_criterion, infer_num_outputs
@@ -508,3 +509,72 @@ def test_modded_nano_prior_rejects_bad_settings(kwargs, message):
     """Bad arguments raise ValueError, not AssertionError, so python -O keeps the check."""
     with pytest.raises(ValueError, match=message):
         ModdedNanoPrior(**kwargs)
+
+
+def make_nanotabicl_prior(**kwargs):
+    settings = dict(num_datapoints_max=192, num_features=6, num_test_datapoints=64, device="cpu")
+    return NanoTabICLPrior(**(settings | kwargs))
+
+
+@pytest.mark.parametrize("problem", ["classification", "regression"])
+def test_nanotabicl_prior_follows_the_batch_contract(problem):
+    """The vendored nanotabicl prior splits its own tables and reports the side it sits on."""
+    torch.manual_seed(0)
+    prior = make_nanotabicl_prior(problem=problem)
+    x_train, y_train, x_test, y_test = prior.batch(2)
+
+    assert x_train.shape == (2, 128, 6)
+    assert y_train.shape == (2, 128)
+    assert x_test.shape == (2, 64, 6)
+    assert y_test.shape == (2, 64)
+    assert torch.isfinite(x_train).all() and torch.isfinite(y_train).all()
+    assert prior.problem_type == problem
+    if problem == "classification":
+        assert prior.max_num_classes == MAX_NUM_CLASSES
+        assert y_train.min() >= 0 and y_train.max() < MAX_NUM_CLASSES
+        assert torch.equal(y_train, y_train.round())
+    else:
+        assert prior.max_num_classes is None
+
+
+def test_nanotabicl_prior_trains_a_model():
+    """It drops into pretrainTFM like any other prior, no dump in between."""
+    torch.manual_seed(0)
+    model = make_tiny_model(num_outputs=MAX_NUM_CLASSES)
+    parameters_before = [parameter.detach().clone() for parameter in model.parameters()]
+    trained = pretrainTFM(
+        model=model,
+        prior=make_nanotabicl_prior(),
+        eval=[],
+        criterion=nn.CrossEntropyLoss(),
+        epochs=1,
+        steps_per_epoch=2,
+        batch_size=2,
+        device="cpu",
+    )
+    assert any(
+        not torch.equal(before, after.detach())
+        for before, after in zip(parameters_before, trained.parameters(), strict=True)
+    )
+
+
+def test_nanotabicl_prior_filter_can_be_turned_off():
+    """The extra trees learnability check is the expensive part, so it has a switch."""
+    torch.manual_seed(0)
+    x_train, y_train, _, _ = make_nanotabicl_prior(filtered=False).batch(2)
+    assert x_train.shape == (2, 128, 6)
+    assert torch.isfinite(x_train).all() and torch.isfinite(y_train).all()
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        (dict(num_datapoints_max=64, num_test_datapoints=64), "smaller than num_datapoints_max"),
+        (dict(problem="ranking"), "classification or regression"),
+        (dict(max_num_classes=1), "at least 2"),
+    ],
+)
+def test_nanotabicl_prior_rejects_bad_settings(kwargs, message):
+    """Bad arguments raise ValueError, not AssertionError, so python -O keeps the check."""
+    with pytest.raises(ValueError, match=message):
+        make_nanotabicl_prior(**kwargs)

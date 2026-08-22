@@ -142,3 +142,4 @@ The external wrappers still speak the older dict shape, because the libraries be
 
 - [TabICL](https://github.com/soda-inria/tabicl) (Classification)
 - [TICL](https://github.com/microsoft/ticl) (Regression, Classification)
+- [TabPFN v1 prior](https://github.com/automl/tabpfn-v1-prior) (Regression, Classification)

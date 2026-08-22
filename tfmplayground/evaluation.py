@@ -4,6 +4,7 @@ import torch
 from openml.config import set_root_cache_directory
 from openml.tasks import TaskType
 from sklearn.metrics import r2_score, roc_auc_score
+from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 from sklearn.preprocessing import LabelEncoder
 
 from tfmplayground.callbacks import Callback
@@ -80,22 +81,42 @@ class OpenMLEvaluationCallback(Callback):
     """
     Evaluates the model on OpenML tasks at the end of each epoch and logs the score to the console,
     roc auc for classification and r2 for regression.
+
+    Takes the same task sizing arguments as get_openml_predictions and passes them straight
+    through, so oversized="subsample" gives a small tabarena rather than a short one.
     """
 
-    def __init__(self, tasks: list[int] | str, classification: bool = True, device: str | torch.device | None = None):
+    def __init__(
+        self,
+        tasks: list[int] | str,
+        classification: bool = True,
+        device: str | torch.device | None = None,
+        max_n_features: int = 500,
+        max_n_samples: int = 10_000,
+        oversized: str = "skip",
+        folds: int | None = None,
+        seed: int = 11,
+    ):
         self.tasks = tasks
         self.classification = classification
         self.device = device
+        self.settings = dict(
+            max_n_features=max_n_features,
+            max_n_samples=max_n_samples,
+            oversized=oversized,
+            folds=folds,
+            seed=seed,
+        )
 
     def on_epoch_end(self, epoch: int, epoch_time: float, loss: float, model, **kwargs):
         if self.classification:
             wrapped = TabularClassifier(model, self.device)
-            predictions = get_openml_predictions(model=wrapped, tasks=self.tasks)
+            predictions = get_openml_predictions(model=wrapped, tasks=self.tasks, **self.settings)
             scores = [roc_auc_score(y_true, y_proba, multi_class="ovr") for y_true, _, y_proba in predictions.values()]
             metric = "avg roc auc"
         else:
             wrapped = TabularRegressor(model, kwargs.get("dist"), self.device)
-            predictions = get_openml_predictions(model=wrapped, tasks=self.tasks)
+            predictions = get_openml_predictions(model=wrapped, tasks=self.tasks, **self.settings)
             scores = [r2_score(y_true, y_pred) for y_true, y_pred, _ in predictions.values()]
             metric = "avg r2 score"
         if not scores:
@@ -110,6 +131,34 @@ class OpenMLEvaluationCallback(Callback):
         pass
 
 
+OVERSIZED = ("skip", "subsample")
+
+
+def can_stratify(y, parts: int) -> bool:
+    """Stratifying needs every class to survive the split, which imbalanced tasks do not promise."""
+    _, counts = np.unique(np.asarray(y), return_counts=True)
+    return counts.min() >= parts
+
+
+def shrink_task(X, y, max_n_features: int, max_n_samples: int, classification: bool, seed: int):
+    """Cuts an oversized task down to the limits instead of dropping it."""
+    if X.shape[1] > max_n_features:
+        rng = np.random.default_rng(seed)
+        X = X.iloc[:, rng.choice(X.shape[1], size=max_n_features, replace=False)]
+    if len(X) > max_n_samples:
+        stratify = y if classification and can_stratify(y, 2) else None
+        _, X, _, y = train_test_split(X, y, test_size=max_n_samples, stratify=stratify, random_state=seed)
+        X, y = X.reset_index(drop=True), y.reset_index(drop=True)
+    return X, y
+
+
+def cross_validation_splits(X, y, folds: int, classification: bool, seed: int):
+    """Own folds over a shrunk task, because openml's split indices point at the rows we dropped."""
+    stratified = classification and can_stratify(y, folds)
+    splitter = StratifiedKFold if stratified else KFold
+    return list(splitter(n_splits=folds, shuffle=True, random_state=seed).split(X, y))
+
+
 @torch.no_grad()
 def get_openml_predictions(
     *,
@@ -117,6 +166,9 @@ def get_openml_predictions(
     tasks: list[int] | str = "tabarena-v0.1",
     max_n_features: int = 500,
     max_n_samples: int = 10_000,
+    oversized: str = "skip",
+    folds: int | None = None,
+    seed: int = 11,
     classification: bool | None = None,
     cache_directory: str | None = None,
 ):
@@ -132,9 +184,20 @@ def get_openml_predictions(
         tasks (list[int] | str, optional):
             A list of OpenML task IDs or the name of a benchmark suite.
         max_n_features (int, optional):
-            Maximum number of features allowed for a task. Tasks exceeding this limit are skipped.
+            Most features a task may carry before oversized decides what to do about it.
         max_n_samples (int, optional):
-            Maximum number of instances allowed for a task. Tasks exceeding this limit are skipped.
+            Most rows a task may carry before oversized decides what to do about it.
+        oversized (str, optional):
+            What happens to a task over those limits. "skip" drops it, which shrinks the benchmark.
+            "subsample" keeps it and cuts it down to the limits, which shrinks the data instead:
+            a seeded random pick of the columns and a stratified sample of the rows.
+        folds (int | None, optional):
+            How many folds to score each task over. Defaults to 1 when skipping, since that is
+            what openml hands us, and 5 when subsampling, where our own folds are all we have and
+            cross validation is what buys the signal back from a small sample.
+        seed (int, optional):
+            Seeds the subsampling and the fold shuffling, so the score moves when the model moves
+            and not when the sample does.
         classification (bool | None, optional):
             Whether the model is a classifier (True) or regressor (False). If None, it is inferred from the model type.
         cache_directory (str | None, optional):
@@ -145,6 +208,13 @@ def get_openml_predictions(
     """
     if classification is None:
         classification = isinstance(model, TabularClassifier)  # TODO: change this once we support different models
+
+    if oversized not in OVERSIZED:
+        raise ValueError(f"oversized must be one of {sorted(OVERSIZED)}, got {oversized!r}")
+    if folds is None:
+        folds = 5 if oversized == "subsample" else 1
+    if oversized == "subsample" and folds < 2:
+        raise ValueError(f"subsampling scores a task over its own folds, so folds must be at least 2, got {folds}")
 
     if cache_directory is not None:
         set_root_cache_directory(cache_directory)
@@ -169,22 +239,27 @@ def get_openml_predictions(
 
         n_features = dataset.qualities["NumberOfFeatures"]
         n_samples = dataset.qualities["NumberOfInstances"]
-        if n_features > max_n_features or n_samples > max_n_samples:
+        if oversized == "skip" and (n_features > max_n_features or n_samples > max_n_samples):
             continue  # skip task, too big
 
-        _, folds, _ = task.get_split_dimensions()
-        tabarena_light = True
-        if tabarena_light:
-            folds = 1  # code supports multiple folds but tabarena_light only has one
-        repeat = 0  # code only supports one repeat
+        X, y, categorical_indicator, attribute_names = dataset.get_data(
+            target=task.target_name, dataset_format="dataframe"
+        )
+
+        if oversized == "subsample":
+            X, y = shrink_task(X, y, max_n_features, max_n_samples, classification, seed)
+            splits = cross_validation_splits(X, y, folds, classification, seed)
+        else:
+            repeat = 0  # code only supports one repeat
+            available = task.get_split_dimensions()[1]
+            splits = [
+                task.get_train_test_split_indices(fold=fold, repeat=repeat) for fold in range(min(available, folds))
+            ]
+
         targets = []
         predictions = []
         probabilities = []
-        for fold in range(folds):
-            X, y, categorical_indicator, attribute_names = dataset.get_data(
-                target=task.target_name, dataset_format="dataframe"
-            )
-            train_indices, test_indices = task.get_train_test_split_indices(fold=fold, repeat=repeat)
+        for train_indices, test_indices in splits:
             X_train = X.iloc[train_indices].to_numpy()
             y_train = y.iloc[train_indices].to_numpy()
             X_test = X.iloc[test_indices].to_numpy()

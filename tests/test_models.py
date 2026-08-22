@@ -303,7 +303,7 @@ def test_pretrainTFM_rejects_a_model_built_for_the_other_problem(make_model, pro
     [
         (make_nanotabpfn_regression, "bar"),
         (make_nanotabicl_regression, "quantiles"),
-        (make_nanotabdpt_regression, "bar"),
+        (make_nanotabdpt_regression, "fixed_bin_logits"),
         (make_moddednanotabpfn_regression, "bar"),
         (make_nanotabfm_regression, "bar"),
         (make_tabicl_regression, "quantiles"),
@@ -319,3 +319,44 @@ def test_regression_criterion_follows_the_declared_head(make_model, kind):
     assert model.output_kind == kind
     criterion = infer_criterion(model, make_regression_prior(), "cpu", problem="regression")
     assert isinstance(criterion, QuantileLoss if kind == "quantiles" else FullSupportBarDistribution)
+    if kind == "fixed_bin_logits":
+        # the model's own bins, not edges fitted from the prior, which would mean something else
+        assert torch.equal(criterion.borders.cpu(), model.regression_borders())
+
+
+def test_fixed_bins_are_not_refitted_from_the_prior():
+    """
+    tabdpt's regression channels mean evenly spaced bins between the bounds it was built with.
+    Fitting edges from the prior instead hands those channels ranges the model never meant, and
+    nothing about the shapes would object.
+    """
+    model = TabDPTModel(
+        dropout=0.0,
+        n_out=NUM_BUCKETS,
+        regression_bin_count=NUM_BUCKETS,
+        regression_bin_min=-7.0,  # deliberately nothing like what a z normalised prior would fit
+        regression_bin_max=7.0,
+        nhead=2,
+        nhid=32,
+        ninp=16,
+        nlayers=2,
+        num_features=8,
+        base_len=32,
+        max_len=64,
+        y_encoder_dim=8,
+        classification=False,
+    )
+    criterion = infer_criterion(model, make_regression_prior(), "cpu", problem="regression")
+
+    assert criterion.borders[0].item() == pytest.approx(-7.0)
+    assert criterion.borders[-1].item() == pytest.approx(7.0)
+    assert criterion.borders.numel() - 1 == NUM_BUCKETS
+
+
+def test_a_model_without_its_borders_cannot_claim_fixed_bins():
+    """The declaration is a promise to say what the bins are, so an empty promise is an error."""
+    model = make_nanotabpfn_regression()
+    model.output_kind = "fixed_bin_logits"
+
+    with pytest.raises(ValueError, match="no regression_borders"):
+        infer_criterion(model, make_regression_prior(), "cpu", problem="regression")

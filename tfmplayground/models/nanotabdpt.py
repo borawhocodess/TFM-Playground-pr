@@ -85,6 +85,8 @@ def clip_outliers(data, eval_pos=-1, n_sigma=4, dim=0):
 
 
 class TabDPTModel(TabularFoundationModel):
+    output_kind = "fixed_bin_logits"  # the regression section decodes against its own fixed bins
+
     def __init__(
         self,
         dropout: float,
@@ -149,10 +151,15 @@ class TabDPTModel(TabularFoundationModel):
             nn.init.normal_(self.thinking_embed, std=0.02)
         self.use_flash = use_flash
         self.clip_sigma = clip_sigma
-        # upstream trains regression as one scalar channel under mse. this copy comes from the
-        # inference release, where regression is read off bins, so the head carries bar logits
+        # upstream's training repo regresses one scalar channel under mse. this copy comes from
+        # the v1.2 inference release, where the head carries a separate section of bin logits and
+        # the regressor decodes them against evenly spaced centres between the two bounds below
         self.problems = ("classification",) if classification else ("regression",)
         self.classification = classification
+
+    def regression_borders(self) -> torch.Tensor:
+        """The bins this head was built around, fixed by config rather than fitted from a prior."""
+        return torch.linspace(self.regression_bin_min, self.regression_bin_max, self.regression_bin_count + 1)
 
     @flash_context
     def forward(self, X_train: torch.Tensor, y_train: torch.Tensor, X_test: torch.Tensor) -> torch.Tensor:

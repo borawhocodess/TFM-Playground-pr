@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import torch
 from torch import nn
 
-OUTPUT_KINDS = ("bar", "quantiles", "scalar")
+OUTPUT_KINDS = ("bar", "fixed_bin_logits", "quantiles", "scalar")
 PROBLEMS = ("classification", "regression")
 
 
@@ -18,9 +18,12 @@ class TabularFoundationModel(nn.Module, ABC):
     without failing, so it is declared rather than guessed.
 
     Attributes:
-        output_kind (str): what regression outputs are. "bar" for bucket logits under a
-            FullSupportBarDistribution, "quantiles" for pinball loss, "scalar" for a single point
-            prediction, which nothing here trains yet.
+        output_kind (str): what regression outputs are. "bar" for bucket logits whose edges are
+            fitted from the prior, "fixed_bin_logits" for bucket logits over edges the model
+            itself fixes, "quantiles" for pinball loss, and "scalar" for a single point
+            prediction, which nothing here trains yet. A model declaring "fixed_bin_logits" must
+            also provide regression_borders(), since fitting edges from the prior would hand its
+            channels ranges it never meant.
         problems (tuple): the problems this model can be built for. A model whose y encoder is a
             class lookup cannot take continuous targets, and says so by leaving regression out.
     """

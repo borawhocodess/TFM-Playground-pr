@@ -81,9 +81,11 @@ def pretrainTFM(
         problem = getattr(prior, "problem_type", None)
     if model is None:
         model = default_model(problem)
+    # before inferring a criterion, because a model built for the other problem should say so
+    # rather than fail on whatever its head happens to emit
+    check_model_problem(model, problem)
     if criterion is None:
         criterion = infer_criterion(model, prior, device, problem)
-    check_model_problem(model, problem)
     num_outputs = infer_num_outputs(model)
     max_num_classes = getattr(prior, "max_num_classes", None)
     if isinstance(criterion, nn.CrossEntropyLoss) and max_num_classes and int(max_num_classes) > num_outputs:
@@ -177,6 +179,17 @@ def infer_criterion(
     output_kind = getattr(model, "output_kind", "bar")
     if output_kind == "quantiles":
         return QuantileLoss(num_outputs)
+    if output_kind == "fixed_bin_logits":
+        borders = getattr(model, "regression_borders", None)
+        if not callable(borders):
+            raise ValueError(
+                f"{type(model).__name__} declares fixed_bin_logits but has no regression_borders(), "
+                "so there is nothing to say what its bins are"
+            )
+        # the model fixed these bins when it was built, so fitting new ones from the prior would
+        # hand its channels ranges it never meant. the tails are ours, upstream decodes the
+        # centres directly, but the edges are the model's
+        return FullSupportBarDistribution(borders().to(device))
     if output_kind == "scalar":
         raise NotImplementedError(
             f"{type(model).__name__} declares a scalar regression head, which upstream trains "

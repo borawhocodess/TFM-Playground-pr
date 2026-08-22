@@ -236,6 +236,9 @@ def train(
                 optimizer.step()
                 optimizer.zero_grad()
 
+            if num_valid == 0:
+                raise RuntimeError("the prior produced no finite batches in this epoch")
+
             end_time = time.time()
             mean_loss = total_loss / num_valid
             model.eval()

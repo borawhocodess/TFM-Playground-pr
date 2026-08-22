@@ -66,17 +66,27 @@ def make_global_bucket_edges(prior, n_buckets=100, device=None, max_y=5_000_000,
 
 
 def dump_targets(filename, max_y):
-    """Reads the targets of a dump and z-normalizes every table over all of its datapoints."""
+    """Reads the targets of a dump and z-normalizes every table over all of its real datapoints."""
     with h5py.File(filename, "r") as f:
         y = f["y"]
-        num_tables, num_datapoints = y.shape
+        num_tables, stored_num_datapoints = y.shape
+        lengths = f.get("num_datapoints")
+        collected = []
+        total = 0
 
-        num_tables_to_use = min(num_tables, max_y // num_datapoints)
+        for table_index in range(num_tables):
+            if total >= max_y:
+                break
+            # tables shorter than the longest one are zero-padded in the dump, those rows are not targets
+            length = int(lengths[table_index]) if lengths is not None else stored_num_datapoints
+            values = np.asarray(y[table_index, :length], dtype=np.float32)
+            normalized = (values - values.mean()) / (values.std(ddof=1) + 1e-8)
+            collected.append(normalized[: max_y - total])
+            total += min(normalized.size, max_y - total)
 
-        y_subset = np.array(y[:num_tables_to_use, :], dtype=np.float32)
-        y_means = y_subset.mean(axis=1, keepdims=True)
-        y_stds = y_subset.std(axis=1, keepdims=True, ddof=1) + 1e-8
-        return ((y_subset - y_means) / y_stds).ravel()
+    if not collected:
+        raise ValueError(f"{filename} holds no targets to fit bucket edges on.")
+    return np.concatenate(collected)
 
 
 def sampled_targets(prior, max_y, batch_size=8, max_batches=25):

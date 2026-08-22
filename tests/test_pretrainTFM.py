@@ -10,7 +10,7 @@ from tfmplayground.evaluation import TOY_TASKS_REGRESSION, OpenMLEvaluationCallb
 from tfmplayground.models import NanoTabPFNModel
 from tfmplayground.prior import MAX_NUM_CLASSES, DictPrior, DumpPrior, FunctionPrior, SCMPrior
 from tfmplayground.train import default_prior, infer_criterion, infer_num_outputs
-from tfmplayground.utils import QuantileLoss, fetch_dump, make_global_bucket_edges
+from tfmplayground.utils import QuantileLoss, dump_targets, fetch_dump, make_global_bucket_edges
 
 
 def make_tiny_model(num_outputs):
@@ -356,3 +356,27 @@ def test_dict_prior_restarts_a_finite_loader():
     markers = [prior.batch(2)[0][0, 0, 0].item() for _ in range(3)]
 
     assert markers == [1.0, 2.0, 1.0]
+
+
+def test_dump_targets_skips_padding_rows(tmp_path):
+    dump = tmp_path / "padded_regression.h5"
+    first = np.array([0.0, 2.0, 100.0, 200.0])
+    second = np.array([10.0, 12.0, 14.0, 20.0, 22.0])
+    with h5py.File(dump, "w") as f:
+        f.create_dataset(
+            "y",
+            data=np.array(
+                [
+                    [*first, 10_000.0, 10_000.0],
+                    [*second, 10_000.0],
+                ],
+                dtype="f4",
+            ),
+        )
+        f.create_dataset("num_datapoints", data=np.array([first.size, second.size], dtype="i4"))
+
+    targets = dump_targets(dump, max_y=9)
+
+    expected = np.concatenate([(t - t.mean()) / (t.std(ddof=1) + 1e-8) for t in (first, second)])
+    assert targets.size == first.size + second.size
+    np.testing.assert_allclose(targets, expected, rtol=1e-5)

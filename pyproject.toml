@@ -61,20 +61,17 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# vendored google code, kept byte-faithful to upstream
 "tfmplayground/models/nanotabfm.py" = [
     "F401",   # unused import
     "UP006",  # non-pep585 annotation
     "UP035",  # deprecated import
     "SIM108", # if-else block instead of if-exp
 ]
-# vendored nanotabicl code, kept close to upstream
 "tfmplayground/models/nanotabicl.py" = [
     "E401",  # multiple imports on one line
     "I001",  # unsorted imports
     "UP045", # non-pep604 annotation optional
 ]
-# paper-source annotations are intentionally kept beside their sampled values
 "tfmplayground/prior.py" = [
     "E501", # line too long
 ]

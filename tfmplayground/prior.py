@@ -167,11 +167,11 @@ class DumpPrior(Prior):
     def __init__(self, filename, device: torch.device = None, starting_index: int = 0):
         self.filename = filename
         with h5py.File(self.filename, "r") as f:
-            self.num_datapoints_max = f["X"].shape[0]
+            self.num_tables = f["X"].shape[0]
+            self.num_datapoints_max = f["X"].shape[1]
             self.max_num_classes = f["max_num_classes"][0] if "max_num_classes" in f else None
             self.problem_type = f["problem_type"][()].decode("utf-8")
             self.has_num_datapoints = "num_datapoints" in f
-            self.stored_max_seq_len = f["X"].shape[1]
         self.device = device if device is not None else get_default_device()
         self.pointer = starting_index
 
@@ -182,7 +182,7 @@ class DumpPrior(Prior):
             if self.has_num_datapoints:
                 max_seq_in_batch = int(f["num_datapoints"][self.pointer : end].max())
             else:
-                max_seq_in_batch = int(self.stored_max_seq_len)
+                max_seq_in_batch = int(self.num_datapoints_max)
 
             x = torch.from_numpy(f["X"][self.pointer : end, :max_seq_in_batch, :num_features])
             y = torch.from_numpy(f["y"][self.pointer : end, :max_seq_in_batch])

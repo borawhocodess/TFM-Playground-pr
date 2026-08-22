@@ -106,7 +106,7 @@ def test_pretrainTFM_default_model_head_is_fixed(tmp_path):
 
 
 def test_problem_flag_forces_classification():
-    """An in-memory prior carries no problem_type, the flag picks cross entropy where inference guesses quantiles."""
+    """An in-memory prior carries no problem_type, so the flag is what picks cross entropy."""
     torch.manual_seed(0)
     prior = FunctionPrior(
         get_batch_function=get_classification_batch,
@@ -116,7 +116,9 @@ def test_problem_flag_forces_classification():
     )
     model = make_tiny_model(num_outputs=2)
 
-    assert isinstance(infer_criterion(model, prior, "cpu"), QuantileLoss)
+    # with no problem to go on, the criterion follows the model's declared head, and nanotabpfn
+    # declares bar. it used to fall back to a quantile loss no matter what the head was
+    assert isinstance(infer_criterion(model, prior, "cpu"), FullSupportBarDistribution)
     assert isinstance(infer_criterion(model, prior, "cpu", problem="classification"), nn.CrossEntropyLoss)
 
     trained = pretrainTFM(

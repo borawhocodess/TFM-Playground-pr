@@ -25,8 +25,11 @@ class TabICLModel(TabularFoundationModel):
         **kwargs: passed through to tabicl, see TabICL for the architecture settings.
     """
 
+    output_kind = "quantiles"  # tabicl's own docs: at max_classes=0 it regresses by quantiles
+
     def __init__(self, max_classes: int = 10, num_quantiles: int = 999, **kwargs):
         super().__init__()
+        self.problems = ("classification",) if max_classes > 0 else ("regression",)
         self.model = TabICL(max_classes=max_classes, num_quantiles=num_quantiles, **kwargs)
 
     def forward(self, X_train: torch.Tensor, y_train: torch.Tensor, X_test: torch.Tensor) -> torch.Tensor:

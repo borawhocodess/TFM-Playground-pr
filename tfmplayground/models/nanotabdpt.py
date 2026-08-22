@@ -149,6 +149,9 @@ class TabDPTModel(TabularFoundationModel):
             nn.init.normal_(self.thinking_embed, std=0.02)
         self.use_flash = use_flash
         self.clip_sigma = clip_sigma
+        # upstream trains regression as one scalar channel under mse. this copy comes from the
+        # inference release, where regression is read off bins, so the head carries bar logits
+        self.problems = ("classification",) if classification else ("regression",)
         self.classification = classification
 
     @flash_context

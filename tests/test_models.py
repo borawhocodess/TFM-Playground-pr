@@ -1,5 +1,6 @@
 import pytest
 import torch
+from pfns.bar_distribution import FullSupportBarDistribution
 from torch import nn
 
 from tfmplayground import pretrainTFM
@@ -12,6 +13,8 @@ from tfmplayground.models import (
     TabICLModel,
 )
 from tfmplayground.priors import FunctionPrior
+from tfmplayground.train import infer_criterion
+from tfmplayground.utils import QuantileLoss
 
 
 def make_nanotabpfn():
@@ -264,23 +267,55 @@ def test_pretrainTFM_trains_any_model_for_regression(make_model):
 
 
 @pytest.mark.parametrize(
-    "make_model",
-    [make_nanotabicl, make_nanotabfm],
-    ids=["nanotabicl", "nanotabfm"],
+    "make_model, problem",
+    [
+        (make_nanotabicl, "regression"),
+        (make_nanotabfm, "regression"),
+        (make_tabicl, "regression"),
+        (make_nanotabicl_regression, "classification"),
+        (make_tabicl_regression, "classification"),
+    ],
+    ids=["nanotabicl", "nanotabfm", "tabicl", "nanotabicl-reversed", "tabicl-reversed"],
 )
-def test_pretrainTFM_rejects_a_class_lookup_for_regression(make_model):
+def test_pretrainTFM_rejects_a_model_built_for_the_other_problem(make_model, problem):
     """
-    A model built for classification looks y up in an embedding table, so continuous targets
-    truncate to indices. cpu and cuda raise on the out of range ones, mps silently returns
-    zeros and trains on a garbage y embedding, so refuse the pairing before any of that.
+    A model built for classification looks y up in a class lookup, so continuous targets truncate
+    to indices. cpu and cuda raise on the out of range ones, mps silently returns zeros and trains
+    on a garbage y embedding, so refuse the pairing before any of that. The reverse direction is
+    refused too, a regression head has no business under a classification loss.
     """
-    with pytest.raises(ValueError, match="embedding table"):
+    prior = make_regression_prior() if problem == "regression" else None
+    with pytest.raises(ValueError, match="was built for"):
         pretrainTFM(
             model=make_model(),
-            prior=make_regression_prior(),
+            prior=prior,
+            problem=problem,
             eval=[],
             epochs=1,
             steps_per_epoch=1,
             batch_size=2,
             device="cpu",
         )
+
+
+@pytest.mark.parametrize(
+    "make_model, kind",
+    [
+        (make_nanotabpfn_regression, "bar"),
+        (make_nanotabicl_regression, "quantiles"),
+        (make_nanotabdpt_regression, "bar"),
+        (make_moddednanotabpfn_regression, "bar"),
+        (make_nanotabfm_regression, "bar"),
+        (make_tabicl_regression, "quantiles"),
+    ],
+    ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm", "tabicl"],
+)
+def test_regression_criterion_follows_the_declared_head(make_model, kind):
+    """
+    A quantile head under a bar distribution has its outputs read as bucket logits. That trains
+    against the wrong objective and never fails, so the model declares what its outputs are.
+    """
+    model = make_model()
+    assert model.output_kind == kind
+    criterion = infer_criterion(model, make_regression_prior(), "cpu", problem="regression")
+    assert isinstance(criterion, QuantileLoss if kind == "quantiles" else FullSupportBarDistribution)

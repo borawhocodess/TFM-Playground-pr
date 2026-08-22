@@ -7,6 +7,7 @@ from torch import nn
 
 from tfmplayground.callbacks import Callback, ConsoleLoggerCallback
 from tfmplayground.models import NanoTabPFNModel, TabularFoundationModel
+from tfmplayground.models.base import OUTPUT_KINDS
 from tfmplayground.priors import Prior, PriorDataLoader
 from tfmplayground.utils import QuantileLoss, get_default_device, make_global_bucket_edges
 
@@ -82,16 +83,8 @@ def pretrainTFM(
         model = default_model(problem)
     if criterion is None:
         criterion = infer_criterion(model, prior, device, problem)
+    check_model_problem(model, problem)
     num_outputs = infer_num_outputs(model)
-    if not isinstance(criterion, nn.CrossEntropyLoss):
-        lookups = discrete_y_encoders(model)
-        if lookups:
-            raise ValueError(
-                f"{type(model).__name__} looks y up in an embedding table "
-                f"({', '.join(lookups)}), which only holds class indices, so it cannot take "
-                "continuous targets. build it for regression instead, which for nanotabicl and "
-                "nanotabfm means max_classes=0 and an out_dim of however many buckets you want"
-            )
     max_num_classes = getattr(prior, "max_num_classes", None)
     if isinstance(criterion, nn.CrossEntropyLoss) and max_num_classes and int(max_num_classes) > num_outputs:
         raise ValueError(
@@ -178,18 +171,38 @@ def infer_criterion(
     if problem == "classification" or (problem is None and getattr(prior, "max_num_classes", None)):
         return nn.CrossEntropyLoss()
     num_outputs = infer_num_outputs(model)
-    if problem == "regression" or getattr(prior, "filename", None) is not None:
-        return FullSupportBarDistribution(make_global_bucket_edges(prior, n_buckets=num_outputs, device=device))
-    return QuantileLoss(num_outputs)
+    # the shape of a regression head does not say what it means, so the model declares it. a
+    # quantile head trained under a bar distribution has its outputs read as bucket logits, which
+    # trains against the wrong objective without ever failing
+    output_kind = getattr(model, "output_kind", "bar")
+    if output_kind == "quantiles":
+        return QuantileLoss(num_outputs)
+    if output_kind == "scalar":
+        raise NotImplementedError(
+            f"{type(model).__name__} declares a scalar regression head, which upstream trains "
+            "under mse. nothing here fits that yet, so pass criterion= yourself"
+        )
+    if output_kind != "bar":
+        raise ValueError(f"output_kind must be one of {sorted(OUTPUT_KINDS)}, got {output_kind!r}")
+    return FullSupportBarDistribution(make_global_bucket_edges(prior, n_buckets=num_outputs, device=device))
 
 
-def discrete_y_encoders(model: TabularFoundationModel) -> list[str]:
-    """Names of the embedding tables a model looks y up in, which only ever hold class indices."""
-    return [
-        name
-        for name, module in model.named_modules()
-        if isinstance(module, nn.Embedding) and "y" in name.rsplit(".", 1)[-1].split("_")
-    ]
+def check_model_problem(model: TabularFoundationModel, problem: str | None):
+    """
+    A model is built for one problem or the other, and it says which, so ask rather than sniff.
+
+    Feeding continuous targets to a class lookup does not reliably fail: cpu and cuda raise on the
+    out of range indices, mps returns zeros and trains on a garbage y embedding.
+    """
+    if problem is None:
+        return
+    problems = getattr(model, "problems", PROBLEMS)
+    if problem not in problems:
+        raise ValueError(
+            f"{type(model).__name__} was built for {' and '.join(problems)}, but the problem is "
+            f"{problem!r}. build it for {problem} instead, which for the tabicl and tabfm family "
+            "means max_classes=0 or is_classifier=False"
+        )
 
 
 def infer_num_outputs(model: TabularFoundationModel) -> int:

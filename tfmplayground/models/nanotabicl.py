@@ -36,6 +36,8 @@ from tfmplayground.models.base import TabularFoundationModel
 
 
 class NanoTabICLv2(TabularFoundationModel):
+    output_kind = "quantiles"  # out_dim is n_quantiles for regression, see __init__
+
     def __init__(
         self,
         max_classes: int,
@@ -53,6 +55,9 @@ class NanoTabICLv2(TabularFoundationModel):
     ):
         # classification: max_classes = out_dim (= 10 typically); regression: max_classes = 0, out_dim = n_quantiles
         super().__init__()
+        # the y encoder below is a class lookup above 0 and a linear layer at 0, so the same
+        # constructor argument decides which problem this instance can take at all
+        self.problems = ("classification",) if max_classes > 0 else ("regression",)
         self.feature_group_size = feature_group_size
         icl_dim = embed_dim * n_cls_cols
 

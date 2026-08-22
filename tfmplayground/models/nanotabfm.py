@@ -430,6 +430,9 @@ class TabFMModel(TabularFoundationModel):
                feature_group_size=3, num_freq=32, decoder_hidden=None,
                is_classifier=True, num_outputs=1, fourier_sigma=1.0):
     super().__init__()
+    # upstream decodes regression to a single scalar under mse, `MLP(d_model, [hidden], 1)`.
+    # this copy takes num_outputs instead, so the head can carry bar logits like the tabpfn ones
+    self.problems = ("classification",) if is_classifier else ("regression",)
     self.max_classes = max_classes
     self.is_classifier = is_classifier
     ff = embed_dim * ff_factor

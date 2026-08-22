@@ -423,3 +423,28 @@ def test_single_row_context_does_not_poison_the_model():
             batch_size=2,
             device="cpu",
         )
+
+
+def test_single_row_classification_context_does_not_poison_the_model():
+    class OneRowPrior(SCMPrior):
+        def batch(self, batch_size):
+            x_train, y_train, x_test, y_test = super().batch(batch_size)
+            return x_train[:, :1], y_train[:, :1], x_test, y_test
+
+    prior = OneRowPrior(num_datapoints_max=160, num_features=4, problem="classification", device="cpu")
+    model = make_tiny_model(MAX_NUM_CLASSES)
+    x_train, y_train, x_test, _ = prior.batch(2)
+    assert torch.isfinite(x_train).all()
+    assert not torch.isfinite(model(x_train, y_train, x_test)).all()
+
+    with pytest.raises(RuntimeError, match="no finite batches"):
+        pretrainTFM(
+            model=model,
+            prior=prior,
+            criterion=nn.CrossEntropyLoss(),
+            eval=[],
+            epochs=1,
+            steps_per_epoch=2,
+            batch_size=2,
+            device="cpu",
+        )

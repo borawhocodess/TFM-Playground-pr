@@ -225,14 +225,20 @@ def train(
                     if not torch.isfinite(y_train).all() or not torch.isfinite(targets).all():
                         continue
 
-                num_valid += 1
-
                 output = model(x_train, y_train, x_test)
+                # a model's own feature normalization can go non-finite on a one row context
+                if not torch.isfinite(output).all():
+                    continue
+
                 if classification_task:
                     targets = targets.reshape((-1,)).to(torch.long)
                     output = output.view(-1, output.shape[-1])
 
                 losses = criterion(output, targets)
+                if not torch.isfinite(losses).all():
+                    continue
+
+                num_valid += 1
                 loss = losses.mean()
                 loss.backward()
                 total_loss += loss.cpu().detach().item()

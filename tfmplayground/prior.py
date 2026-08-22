@@ -198,10 +198,7 @@ class DumpPrior(Prior):
 
             self.pointer += batch_size
             if self.pointer >= f["X"].shape[0]:
-                print(
-                    """Finished iteration over all stored datasets! """
-                    """Will start reusing the same data with different splits now."""
-                )
+                print("Finished iteration over all stored datasets; reusing the same data.")
                 self.pointer = 0
 
         x = x.to(self.device)

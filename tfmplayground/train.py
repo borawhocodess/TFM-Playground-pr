@@ -28,7 +28,6 @@ def pretrainTFM(
     epochs: int = 100,
     steps_per_epoch: int = 25,
     batch_size: int = 4,
-    accumulate_gradients: int = 1,
     lr: float = 1e-4,
     device: torch.device = None,
     multi_gpu: bool = False,
@@ -51,7 +50,6 @@ def pretrainTFM(
         epochs: (int) the number of epochs we train for
         steps_per_epoch: (int) the number of batches that make up an epoch
         batch_size: (int) the number of tables per batch
-        accumulate_gradients: (int) the number of gradients to accumulate before updating the weights
         lr: (float) the learning rate
         device: (torch.device) the device we are using
         multi_gpu: (bool) whether to wrap the model in DataParallel
@@ -117,7 +115,6 @@ def pretrainTFM(
         epochs=epochs,
         steps_per_epoch=steps_per_epoch,
         batch_size=batch_size,
-        accumulate_gradients=accumulate_gradients,
         lr=lr,
         device=device,
         callbacks=eval,
@@ -184,7 +181,6 @@ def train(
     epochs: int,
     steps_per_epoch: int = 25,
     batch_size: int = 4,
-    accumulate_gradients: int = 1,
     lr: float = 1e-4,
     device: torch.device = None,
     callbacks: list[Callback] = None,
@@ -201,8 +197,6 @@ def train(
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
 
-    assert steps_per_epoch % accumulate_gradients == 0, "steps_per_epoch must be divisible by accumulate_gradients"
-
     batches = iter(PriorDataLoader(prior, batch_size))
 
     try:
@@ -212,7 +206,7 @@ def train(
             optimizer.train()
             total_loss = 0.0
             num_valid = 0
-            for i in range(steps_per_epoch):
+            for _ in range(steps_per_epoch):
                 x_train, y_train, x_test, targets = next(batches)
                 x_train = x_train.to(device)
                 y_train = y_train.to(device)
@@ -234,14 +228,13 @@ def train(
                     output = output.view(-1, output.shape[-1])
 
                 losses = criterion(output, targets)
-                loss = losses.mean() / accumulate_gradients
+                loss = losses.mean()
                 loss.backward()
-                total_loss += loss.cpu().detach().item() * accumulate_gradients
+                total_loss += loss.cpu().detach().item()
 
-                if (i + 1) % accumulate_gradients == 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                    optimizer.step()
-                    optimizer.zero_grad()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                optimizer.zero_grad()
 
             end_time = time.time()
             mean_loss = total_loss / num_valid

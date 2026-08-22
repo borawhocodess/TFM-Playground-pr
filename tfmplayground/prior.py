@@ -173,9 +173,16 @@ class DumpPrior(Prior):
             self.problem_type = f["problem_type"][()].decode("utf-8")
             self.has_num_datapoints = "num_datapoints" in f
         self.device = device if device is not None else get_default_device()
+        if not 0 <= starting_index < self.num_tables:
+            raise ValueError(f"starting_index must be between 0 and {self.num_tables - 1}, got {starting_index}")
         self.pointer = starting_index
 
     def batch(self, batch_size: int) -> Batch:
+        if not 0 < batch_size <= self.num_tables:
+            raise ValueError(f"batch_size must be between 1 and {self.num_tables}, got {batch_size}")
+        if self.pointer + batch_size > self.num_tables:
+            self.pointer = 0
+
         with h5py.File(self.filename, "r") as f:
             end = self.pointer + batch_size
             num_features = f["num_features"][self.pointer : end].max()

@@ -286,14 +286,20 @@ def train(
             model.eval()
             optimizer.eval()
 
+            # a callback that measures something returns it, and every callback after it is
+            # handed what came before. that is how the eval score reaches a logger at all
+            metrics = {}
             for callback in callbacks:
-                callback.on_epoch_end(
+                reported = callback.on_epoch_end(
                     epoch,
                     end_time - epoch_start_time,
                     mean_loss,
                     (model.module if multi_gpu else model),
                     dist=criterion,
+                    **metrics,
                 )
+                if reported:
+                    metrics.update(reported)
     except KeyboardInterrupt:
         pass
     finally:

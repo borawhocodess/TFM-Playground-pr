@@ -126,6 +126,7 @@ class OpenMLEvaluationCallback(Callback):
             f"epoch {epoch:5d} | time {epoch_time:5.2f}s | mean loss {loss:5.2f} | {metric} {avg_score:.3f}",
             flush=True,
         )
+        return {"roc_auc" if self.classification else "r2": avg_score, "tasks_scored": len(scores)}
 
     def close(self):
         pass

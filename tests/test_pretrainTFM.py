@@ -1,5 +1,6 @@
-import h5py
 import inspect
+
+import h5py
 import numpy as np
 import pytest
 import torch

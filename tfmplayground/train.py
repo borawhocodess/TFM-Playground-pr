@@ -82,6 +82,10 @@ def pretrainTFM(
             raise ValueError(
                 f"criterion {type(criterion).__name__} is for {criterion_problem} but the problem is {problem!r}"
             )
+    if problem is None and criterion is not None:
+        problem = "classification" if isinstance(criterion, nn.CrossEntropyLoss) else "regression"
+    if model is not None:
+        check_model_problem(model, problem)
     if device is None:
         device = get_default_device()
     if prior is None:

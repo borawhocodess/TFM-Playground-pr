@@ -120,6 +120,10 @@ class TabularClassifier:
             X_test = torch.from_numpy(X_test).unsqueeze(0).to(torch.float).to(self.device)
             y_train = torch.from_numpy(self.y_train).unsqueeze(0).to(torch.float).to(self.device)
             out = self.model(X_train, y_train, X_test).squeeze(0)  # remove batch size 1
+            if out.shape[-1] < self.num_classes:
+                raise ValueError(
+                    f"the model has {out.shape[-1]} outputs but the context contains {self.num_classes} classes"
+                )
             # our pretrained classifier supports up to num_outputs classes, if the dataset has less we cut off the rest
             out = out[:, : self.num_classes]
             # apply softmax to get a probability distribution

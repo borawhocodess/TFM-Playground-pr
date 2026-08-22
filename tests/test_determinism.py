@@ -58,6 +58,16 @@ def test_classifier_encodes_and_restores_non_contiguous_labels():
     assert model.training
 
 
-def test_regressor_needs_a_decoder():
-    with pytest.raises(ValueError, match="needs a distribution to decode"):
-        TabularRegressor(FixedOutputModel(num_outputs=3), device="cpu")
+def test_regressor_decodes_a_one_output_model_without_a_distribution():
+    regressor = TabularRegressor(FixedOutputModel(num_outputs=1), device="cpu")
+    regressor.fit(np.arange(12, dtype=float).reshape(6, 2), np.arange(6, dtype=float))
+
+    assert regressor.predict(np.ones((2, 2))).shape == (2,)
+
+
+def test_regressor_rejects_a_multi_output_model_without_a_decoder():
+    regressor = TabularRegressor(FixedOutputModel(num_outputs=3), device="cpu")
+    regressor.fit(np.arange(12, dtype=float).reshape(6, 2), np.arange(6, dtype=float))
+
+    with pytest.raises(ValueError, match="decode a multi-output model"):
+        regressor.predict(np.ones((2, 2)))

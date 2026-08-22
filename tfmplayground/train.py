@@ -120,7 +120,8 @@ def pretrainTFM(
         callbacks=eval,
         multi_gpu=multi_gpu,
     )
-    if isinstance(criterion, FullSupportBarDistribution):
+    decoder = getattr(criterion, "mean", None)
+    if callable(decoder):
         trained_model.dist = criterion
     return trained_model
 

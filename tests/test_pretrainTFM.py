@@ -380,3 +380,22 @@ def test_dump_targets_skips_padding_rows(tmp_path):
     expected = np.concatenate([(t - t.mean()) / (t.std(ddof=1) + 1e-8) for t in (first, second)])
     assert targets.size == first.size + second.size
     np.testing.assert_allclose(targets, expected, rtol=1e-5)
+
+
+def test_quantile_trained_model_carries_its_decoder():
+    prior = SCMPrior(num_datapoints_max=160, num_features=4, problem="regression", device="cpu")
+    trained = pretrainTFM(
+        model=make_tiny_model(5),
+        prior=prior,
+        criterion=QuantileLoss(5),
+        eval=[],
+        epochs=1,
+        steps_per_epoch=1,
+        batch_size=2,
+        device="cpu",
+    )
+
+    assert isinstance(trained.dist, QuantileLoss)
+    regressor = TabularRegressor(trained, device="cpu")
+    regressor.fit(np.random.default_rng(0).standard_normal((6, 4)), np.arange(6, dtype=float))
+    assert regressor.predict(np.ones((3, 4))).shape == (3,)

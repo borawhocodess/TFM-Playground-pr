@@ -212,7 +212,7 @@ def train(
                 y_train = y_train.to(device)
                 x_test = x_test.to(device)
                 targets = targets.to(device)
-                if torch.isnan(x_train).any() or torch.isnan(x_test).any() or torch.isnan(y_train).any():
+                if not all(torch.isfinite(tensor).all() for tensor in (x_train, y_train, x_test, targets)):
                     continue
                 num_valid += 1
 

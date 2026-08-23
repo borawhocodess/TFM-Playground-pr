@@ -116,10 +116,17 @@ class FixedBinLoss(nn.Module):
     """
     Cross entropy over bins the model fixed, decoded the way tabdpt v1.2 decodes.
 
-    The decoder is upstream's exactly: softmax the bin logits, take the bin centres, sum them
-    weighted. The objective is not, because tabdpt's v1.2 training code is not public and the
-    older training repo regressed a single scalar under mse instead. Cross entropy on the bin a
-    target falls into is the ordinary choice for a binned head, and it is ours, not theirs.
+    The decoder is upstream's: softmax the bin logits, take the bin centres, sum them weighted.
+
+    The objective here is NOT upstream's, and the earlier claim in this docstring that upstream
+    had not published one was wrong. The tabdpt v1.2 paper, section 3.3, says plainly: "We
+    optimize the CRPS loss between the predicted cumulative distribution and the target CDF
+    induced by the observed value." It also names cross entropy as the alternative it rejects,
+    because that needs an arbitrary smoothing bandwidth. Cross entropy is also blind to bin
+    order, so missing by one bin costs exactly what missing by forty costs.
+
+    This class is therefore a stopgap. Use CRPS instead, which is what the model contract branch
+    implements as FixedBinDistribution.
 
     Unlike a FullSupportBarDistribution the outer bins carry no tails, so targets outside the
     range fall into the end bins rather than into a half normal. That is what fixed bins mean.

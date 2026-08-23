@@ -17,7 +17,7 @@ from tfmplayground import pretrainTFM
 model = pretrainTFM()
 ```
 
-Everything is optional and nothing is downloaded: with no arguments this samples tables from the official TabICL prior on the fly, builds a small nanoTabPFN with a ten class head to fit them, picks cross entropy as the criterion and pretrains on the best available device, logging the loss to the console. This takes around ten minutes on a Macbook M4 Pro GPU.
+Everything is optional and nothing is downloaded: with no arguments this samples tables from the official TabICL prior on the fly, builds a small nanoTabPFN with a ten class head to fit them, picks cross entropy as the criterion and pretrains on the best available device, logging the loss to the console. Measured on an M4 Pro GPU the full run is around half an hour, longer than the old default because the TabICL prior varies its train/test split from 10% to 90% and so hands the model far more in-context rows.
 
 The same goes for regression:
 
@@ -140,6 +140,6 @@ The external wrappers still speak the older dict shape, because the libraries be
 
 ### Supported Priors
 
-- [TabICL](https://github.com/soda-inria/tabicl) (Classification)
+- [TabICL](https://github.com/soda-inria/tabicl) (Regression, Classification)
 - [TICL](https://github.com/microsoft/ticl) (Regression, Classification)
 - [TabPFN v1 prior](https://github.com/automl/tabpfn-v1-prior) (Regression, Classification)

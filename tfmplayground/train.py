@@ -1,4 +1,5 @@
 import time
+from collections.abc import Mapping
 
 import schedulefree
 import torch
@@ -283,7 +284,13 @@ def check_model_problem(model: TabularFoundationModel, problem: str | None):
 
 
 def infer_num_outputs(model: TabularFoundationModel) -> int:
-    """Read the declared output width, with a probe fallback for third-party models."""
+    """
+    How many outputs the model produces per test row.
+
+    Taken from the model when it declares one. The throwaway forward pass below is the fallback
+    for third party models that do not, and it runs in whatever mode the model is in, which a
+    custom model carrying running statistics would notice.
+    """
     num_outputs = getattr(model, "num_outputs", None)
     if num_outputs is not None:
         if int(num_outputs) < 1:
@@ -331,6 +338,7 @@ def train(
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
     output_kind = model_output_kind(contract_model, "classification" if classification_task else "regression")
+    status = "completed"
 
     batches = iter(PriorDataLoader(prior, batch_size))
 
@@ -402,15 +410,24 @@ def train(
                     end_time - epoch_start_time,
                     mean_loss,
                     (model.module if multi_gpu else model),
-                    dist=criterion,
-                    **metrics,
+                    **{**metrics, "dist": criterion},  # dist is ours, a callback cannot shadow it
                 )
-                if reported:
+                if isinstance(reported, Mapping):
                     metrics.update(reported)
+                elif reported is not None:
+                    raise TypeError(
+                        f"{type(callback).__name__}.on_epoch_end returned "
+                        f"{type(reported).__name__}, measurements have to be a mapping or nothing"
+                    )
     except KeyboardInterrupt:
-        pass
+        status = "interrupted"
+    except Exception as error:
+        status = f"failed: {type(error).__name__}: {error}"
+        raise
     finally:
+        # a record that says a run finished when it crashed is worse than no record at all
         for callback in callbacks:
+            callback.status = status
             callback.close()
 
     return (model.module if multi_gpu else model), mean_loss

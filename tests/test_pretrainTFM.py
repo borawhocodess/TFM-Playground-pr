@@ -1,3 +1,5 @@
+import inspect
+
 import h5py
 import numpy as np
 import pytest
@@ -8,7 +10,16 @@ from torch import nn
 from tfmplayground import TabularClassifier, TabularRegressor, pretrainTFM
 from tfmplayground.evaluation import TOY_TASKS_REGRESSION, OpenMLEvaluationCallback
 from tfmplayground.models import NanoTabPFNModel
-from tfmplayground.prior import MAX_NUM_CLASSES, DictPrior, DumpPrior, FunctionPrior, SCMPrior
+from tfmplayground.priors import (
+    MAX_NUM_CLASSES,
+    DictPrior,
+    DumpPrior,
+    FunctionPrior,
+    ModdedNanoPrior,
+    NanoTabICLPrior,
+    PriorConfig,
+    SCMPrior,
+)
 from tfmplayground.train import default_prior, infer_criterion, infer_num_outputs
 from tfmplayground.utils import QuantileLoss, dump_targets, fetch_dump, make_global_bucket_edges
 
@@ -98,7 +109,7 @@ def test_pretrainTFM_default_model_head_is_fixed(tmp_path):
 
 
 def test_problem_flag_forces_classification():
-    """An in-memory prior carries no problem_type, the flag picks cross entropy where inference guesses quantiles."""
+    """An in-memory prior carries no problem_type, so the flag is what picks cross entropy."""
     torch.manual_seed(0)
     prior = FunctionPrior(
         get_batch_function=get_classification_batch,
@@ -108,7 +119,9 @@ def test_problem_flag_forces_classification():
     )
     model = make_tiny_model(num_outputs=2)
 
-    assert isinstance(infer_criterion(model, prior, "cpu"), QuantileLoss)
+    # with no problem to go on, the criterion follows the model's declared head, and nanotabpfn
+    # declares bar. it used to fall back to a quantile loss no matter what the head was
+    assert isinstance(infer_criterion(model, prior, "cpu"), FullSupportBarDistribution)
     assert isinstance(infer_criterion(model, prior, "cpu", problem="classification"), nn.CrossEntropyLoss)
 
     trained = pretrainTFM(
@@ -192,8 +205,10 @@ def test_model_head_contradicting_criterion_raises(tmp_path):
             criterion=FullSupportBarDistribution(torch.linspace(-3, 3, 101)),
             device="cpu",
         )
+    quantile_model = make_tiny_model(num_outputs=8)
+    quantile_model.output_kinds = {"regression": "quantiles"}
     with pytest.raises(ValueError, match="99 quantiles but the model has 8"):
-        pretrainTFM(model=make_tiny_model(num_outputs=8), prior=prior, criterion=QuantileLoss(99), device="cpu")
+        pretrainTFM(model=quantile_model, prior=prior, criterion=QuantileLoss(99), device="cpu")
 
 
 def test_model_head_contradicting_prior_classes_raises(tmp_path):
@@ -317,11 +332,13 @@ def test_pretrainTFM_trains_on_a_sampled_regression_prior():
 
 
 @pytest.mark.parametrize("problem", ["classification", "regression"])
-def test_default_prior_samples_the_scm_on_the_fly(problem):
-    """The default prior needs no dump and hands the problem down to our own get_batch."""
+def test_default_prior_samples_tabicl_on_the_fly(problem):
+    """The default prior is the official tabicl one, sampled live, with no dump behind it."""
+    from tfmplayground.external_priors import TabICLPrior
+
     prior = default_prior("cpu", problem)
 
-    assert isinstance(prior, SCMPrior)
+    assert isinstance(prior, TabICLPrior)
     assert getattr(prior, "filename", None) is None
     assert prior.problem_type == problem
 
@@ -334,7 +351,7 @@ def test_default_prior_samples_the_scm_on_the_fly(problem):
 
 
 def test_default_classification_prior_fits_the_default_head():
-    """The scm caps itself at ten classes, which is exactly what the default model head holds."""
+    """The default prior caps itself at ten classes, exactly what the default model head holds."""
     prior = default_prior("cpu", "classification")
     assert prior.max_num_classes == MAX_NUM_CLASSES
 
@@ -384,8 +401,10 @@ def test_dump_targets_skips_padding_rows(tmp_path):
 
 def test_quantile_trained_model_carries_its_decoder():
     prior = SCMPrior(num_datapoints_max=160, num_features=4, problem="regression", device="cpu")
+    model = make_tiny_model(5)
+    model.output_kinds = {"regression": "quantiles"}
     trained = pretrainTFM(
-        model=make_tiny_model(5),
+        model=model,
         prior=prior,
         criterion=QuantileLoss(5),
         eval=[],
@@ -448,3 +467,234 @@ def test_single_row_classification_context_does_not_poison_the_model():
             batch_size=2,
             device="cpu",
         )
+
+
+def test_pinned_tabicl_exposes_the_regression_prior_api():
+    from tabicl.prior import PriorDataset
+
+    assert "regression" in inspect.signature(PriorDataset.__init__).parameters
+
+
+def test_tabicl_prior_rejects_the_broken_parallel_sampler():
+    from tfmplayground.external_priors.tabicl import TabICLPrior
+
+    with pytest.raises(ValueError, match="n_jobs=1"):
+        TabICLPrior(n_jobs=2)
+
+
+def test_tabicl_batch_keeps_features_used_after_the_first_table():
+    from tfmplayground.external_priors.tabicl import sample_table
+
+    class Dataset:
+        def __next__(self):
+            x = torch.arange(2 * 5 * 6, dtype=torch.float32).reshape(2, 5, 6)
+            y = torch.zeros(2, 5)
+            active_features = torch.tensor([2, 4])
+            train_size = torch.tensor([3, 3])
+            return x, y, active_features, None, train_size
+
+    x, _, split = sample_table(Dataset(), torch.device("cpu"))
+
+    assert x.shape == (2, 5, 4)
+    assert torch.equal(x[0, :, 2:], torch.zeros(5, 2))
+    assert torch.count_nonzero(x[1, :, 2:]) > 0
+    assert split == 3
+
+
+def test_modded_nano_prior_follows_the_batch_contract():
+    """The vendored speedrun prior splits its own tables and reports the classification side."""
+    prior = ModdedNanoPrior(PriorConfig(min_num_rows=200, max_num_rows=200, min_num_cols=8, max_num_cols=8), "cpu")
+    x_train, y_train, x_test, y_test = prior.batch(4)
+
+    assert x_train.shape == (4, 72, 8)  # 200 rows less upstream's default 128 held out
+    assert y_train.shape == (4, 72)
+    assert x_test.shape == (4, 128, 8)
+    assert y_test.shape == (4, 128)
+    assert torch.isfinite(x_train).all() and torch.isfinite(x_test).all()
+    assert prior.problem_type == "classification"
+    assert 2 <= int(y_train.max()) + 1 <= prior.max_num_classes
+
+
+def test_modded_nano_prior_trains_a_model():
+    """It drops into pretrainTFM like any other prior, no dump in between."""
+    torch.manual_seed(0)
+    model = make_tiny_model(num_outputs=8)
+    parameters_before = [parameter.detach().clone() for parameter in model.parameters()]
+    trained = pretrainTFM(
+        model=model,
+        prior=ModdedNanoPrior(PriorConfig(min_num_rows=200, max_num_rows=200, min_num_cols=8, max_num_cols=8), "cpu"),
+        eval=[],
+        criterion=nn.CrossEntropyLoss(),
+        epochs=1,
+        steps_per_epoch=2,
+        batch_size=2,
+        device="cpu",
+    )
+    assert any(
+        not torch.equal(before, after.detach())
+        for before, after in zip(parameters_before, trained.parameters(), strict=True)
+    )
+
+
+def test_modded_nano_prior_keeps_the_upstream_check():
+    """
+    Upstream asserts that a table has more rows than it holds out. The assert is kept as it is,
+    unedited, so a newer upstream file can be pasted straight over the vendored section. Note that
+    python -O strips it, which is why the check is upstream's business and not a contract we make.
+    """
+    with pytest.raises(AssertionError):
+        ModdedNanoPrior(PriorConfig(min_num_rows=100, max_num_rows=100, min_num_test_rows=100, max_num_test_rows=100))
+
+
+def make_nanotabicl_prior(**kwargs):
+    settings = dict(num_datapoints_max=192, num_features=6, num_test_datapoints=64, device="cpu")
+    return NanoTabICLPrior(**(settings | kwargs))
+
+
+@pytest.mark.parametrize("problem", ["classification", "regression"])
+def test_nanotabicl_prior_follows_the_batch_contract(problem):
+    """The vendored nanotabicl prior splits its own tables and reports the side it sits on."""
+    torch.manual_seed(0)
+    prior = make_nanotabicl_prior(problem=problem)
+    x_train, y_train, x_test, y_test = prior.batch(2)
+
+    assert x_train.shape == (2, 128, 6)
+    assert y_train.shape == (2, 128)
+    assert x_test.shape == (2, 64, 6)
+    assert y_test.shape == (2, 64)
+    assert torch.isfinite(x_train).all() and torch.isfinite(y_train).all()
+    assert prior.problem_type == problem
+    if problem == "classification":
+        assert prior.max_num_classes == MAX_NUM_CLASSES
+        assert y_train.min() >= 0 and y_train.max() < MAX_NUM_CLASSES
+        assert torch.equal(y_train, y_train.round())
+    else:
+        assert prior.max_num_classes is None
+
+
+def test_nanotabicl_prior_trains_a_model():
+    """It drops into pretrainTFM like any other prior, no dump in between."""
+    torch.manual_seed(0)
+    model = make_tiny_model(num_outputs=MAX_NUM_CLASSES)
+    parameters_before = [parameter.detach().clone() for parameter in model.parameters()]
+    trained = pretrainTFM(
+        model=model,
+        prior=make_nanotabicl_prior(),
+        eval=[],
+        criterion=nn.CrossEntropyLoss(),
+        epochs=1,
+        steps_per_epoch=2,
+        batch_size=2,
+        device="cpu",
+    )
+    assert any(
+        not torch.equal(before, after.detach())
+        for before, after in zip(parameters_before, trained.parameters(), strict=True)
+    )
+
+
+def test_nanotabicl_prior_filter_can_be_turned_off():
+    """The extra trees learnability check is the expensive part, so it has a switch."""
+    torch.manual_seed(0)
+    x_train, y_train, _, _ = make_nanotabicl_prior(filtered=False).batch(2)
+    assert x_train.shape == (2, 128, 6)
+    assert torch.isfinite(x_train).all() and torch.isfinite(y_train).all()
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        (dict(num_datapoints_max=64, num_test_datapoints=64), "smaller than num_datapoints_max"),
+        (dict(problem="ranking"), "classification or regression"),
+        (dict(max_num_classes=1), "at least 2"),
+    ],
+)
+def test_nanotabicl_prior_rejects_bad_settings(kwargs, message):
+    """Bad arguments raise ValueError, not AssertionError, so python -O keeps the check."""
+    with pytest.raises(ValueError, match=message):
+        make_nanotabicl_prior(**kwargs)
+
+
+def make_tabicl_prior(**kwargs):
+    from tfmplayground.external_priors import TabICLPrior
+
+    settings = dict(
+        num_datapoints_min=64,
+        num_datapoints_max=128,
+        num_features_min=4,
+        num_features_max=8,
+        n_jobs=1,
+        device="cpu",
+    )
+    return TabICLPrior(**(settings | kwargs))
+
+
+@pytest.mark.parametrize("problem", ["classification", "regression"])
+def test_tabicl_prior_samples_live(problem):
+    """The official tabicl prior streams straight into the batch contract, no dump in between."""
+    torch.manual_seed(0)
+    prior = make_tabicl_prior(problem=problem)
+    x_train, y_train, x_test, y_test = prior.batch(2)
+
+    assert x_train.shape[0] == x_test.shape[0] == 2
+    assert x_train.shape[2] == x_test.shape[2]  # same features on both halves
+    assert x_train.shape[1] + x_test.shape[1] == y_train.shape[1] + y_test.shape[1]
+    assert torch.isfinite(x_train).all() and torch.isfinite(y_train).all()
+    assert prior.problem_type == problem
+    if problem == "classification":
+        assert 2 <= int(y_train.max()) + 1 <= prior.max_num_classes
+        assert torch.equal(y_train, y_train.round())
+    else:
+        assert prior.max_num_classes is None
+        assert not torch.equal(y_train, y_train.round())  # continuous, not bucketed into classes
+
+
+def test_tabicl_regression_targets_vary_on_both_sides_of_the_split():
+    """A regression table is only useful if the target moves in the context and in the queries."""
+    torch.manual_seed(0)
+    _, y_train, _, y_test = make_tabicl_prior(problem="regression").batch(2)
+    assert (y_train.std(dim=1) > 0).all()
+    assert (y_test.std(dim=1) > 0).all()
+
+
+def test_tabicl_prior_rebuilds_when_the_batch_size_changes():
+    """tabicl fixes the batch size at construction, so asking for another one rebuilds."""
+    prior = make_tabicl_prior()
+    assert prior.batch(2)[0].shape[0] == 2
+    assert prior.batch(3)[0].shape[0] == 3
+
+
+def test_tabicl_prior_trains_a_model():
+    """It drops into pretrainTFM like any other prior."""
+    torch.manual_seed(0)
+    model = make_tiny_model(num_outputs=MAX_NUM_CLASSES)
+    parameters_before = [parameter.detach().clone() for parameter in model.parameters()]
+    trained = pretrainTFM(
+        model=model,
+        prior=make_tabicl_prior(),
+        eval=[],
+        criterion=nn.CrossEntropyLoss(),
+        epochs=1,
+        steps_per_epoch=2,
+        batch_size=2,
+        device="cpu",
+    )
+    assert any(
+        not torch.equal(before, after.detach())
+        for before, after in zip(parameters_before, trained.parameters(), strict=True)
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        (dict(num_datapoints_min=128, num_datapoints_max=128), "smaller than num_datapoints_max"),
+        (dict(num_features_min=9, num_features_max=8), "must not exceed"),
+        (dict(max_num_classes=0), "at least 2"),
+        (dict(problem="ranking"), "problem must be one of"),
+    ],
+)
+def test_tabicl_prior_rejects_bad_settings(kwargs, message):
+    """Bad arguments raise ValueError here rather than 'low >= high' from deep inside the library."""
+    with pytest.raises(ValueError, match=message):
+        make_tabicl_prior(**kwargs)

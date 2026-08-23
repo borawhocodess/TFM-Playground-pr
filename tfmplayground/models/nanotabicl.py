@@ -53,6 +53,12 @@ class NanoTabICLv2(TabularFoundationModel):
     ):
         # classification: max_classes = out_dim (= 10 typically); regression: max_classes = 0, out_dim = n_quantiles
         super().__init__()
+        # the y encoder below is a class lookup above 0 and a linear layer at 0, so the same
+        # constructor argument decides which problem this instance can take at all
+        problem = "classification" if max_classes > 0 else "regression"
+        self.problems = (problem,)
+        self.output_kinds = {problem: "class_logits" if max_classes > 0 else "quantiles"}
+        self.num_outputs = out_dim
         self.feature_group_size = feature_group_size
         icl_dim = embed_dim * n_cls_cols
 

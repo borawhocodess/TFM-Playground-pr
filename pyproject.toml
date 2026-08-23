@@ -27,7 +27,11 @@ dependencies = [
     "tqdm",
     "pfns==0.3.0",
     "openml==0.15.1",
-    "tabicl[pretrain]>=2.1.0",
+    "interpret-core",  # undeclared ticl dependency, ticl/__init__ fails to import without it
+    # pinned to the commit this repo was reviewed against, not main: the regression flag is in no
+    # release yet, and an unpinned branch moves under you. the version string cannot tell you
+    # which you have, they never bumped it, so external_priors/tabicl.py checks the signature
+    "tabicl[pretrain] @ git+https://github.com/soda-inria/tabicl.git@8f1aa2098c894ab91dba15209cf2002ba4be6c6c",
     "ticl @ git+https://github.com/microsoft/ticl.git@main",
     "tabpfn-v1-prior @ git+https://github.com/automl/tabpfn-v1-prior.git",
     "mlflow",
@@ -72,7 +76,13 @@ ignore = [
     "I001",  # unsorted imports
     "UP045", # non-pep604 annotation optional
 ]
-"tfmplayground/prior.py" = [
+"tfmplayground/priors/nanotabicl.py" = [
+    "B905",  # zip without an explicit strict
+    "E401",  # multiple imports on one line
+    "E501",  # line too long
+    "I001",  # unsorted imports
+]
+"tfmplayground/priors/scm.py" = [
     "E501", # line too long
 ]
 

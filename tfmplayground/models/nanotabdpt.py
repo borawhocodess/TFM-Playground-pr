@@ -149,7 +149,18 @@ class TabDPTModel(TabularFoundationModel):
             nn.init.normal_(self.thinking_embed, std=0.02)
         self.use_flash = use_flash
         self.clip_sigma = clip_sigma
+        # upstream's training repo regresses one scalar channel under mse. this copy comes from
+        # the v1.2 inference release, where the head carries a separate section of bin logits and
+        # the regressor decodes them against evenly spaced centres between the two bounds below
+        problem = "classification" if classification else "regression"
+        self.problems = (problem,)
+        self.output_kinds = {problem: "class_logits" if classification else "fixed_bin_logits"}
+        self.num_outputs = n_out if classification else regression_bin_count
         self.classification = classification
+
+    def regression_borders(self) -> torch.Tensor:
+        """The bins this head was built around, fixed by config rather than fitted from a prior."""
+        return torch.linspace(self.regression_bin_min, self.regression_bin_max, self.regression_bin_count + 1)
 
     @flash_context
     def forward(self, X_train: torch.Tensor, y_train: torch.Tensor, X_test: torch.Tensor) -> torch.Tensor:

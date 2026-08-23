@@ -21,7 +21,7 @@ class NanoTabPFNModel(TabularFoundationModel):
         self.num_attention_heads = num_attention_heads
         self.mlp_hidden_size = mlp_hidden_size
         self.num_layers = num_layers
-        self.num_outputs = num_outputs
+        self.num_outputs = num_outputs  # one generic head, output_kind stays the regression one
         self.feature_encoder = FeatureEncoder(embedding_size)
         self.target_encoder = TargetEncoder(embedding_size)
         self.transformer_blocks = nn.ModuleList()

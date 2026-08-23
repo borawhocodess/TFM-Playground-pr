@@ -127,8 +127,6 @@ prior = TabICLPriorDataLoader(
 ```
 You can check out `next(iter(prior))` if you want to see an example batch.
 
-Check out `prior_visualization.ipynb` for some more examples.
-
 ### Supported Priors
 
 - [TabICL](https://github.com/soda-inria/tabicl) (Classification)

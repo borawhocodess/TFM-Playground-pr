@@ -75,7 +75,7 @@ def test_shrink_task_is_seeded():
 @pytest.mark.parametrize("classification", [True, False])
 def test_cross_validation_splits_test_every_row_once(classification):
     """Folds are what buys the signal back from a small sample, so they have to cover it."""
-    X, y = make_task(rows=200, columns=4, classification=classification)
+    X, y = make_task(rows=200, columns=4, classification=classification, weights=(0.5, 0.3, 0.2))
     splits = cross_validation_splits(X, y, folds=5, classification=classification, seed=11)
 
     assert len(splits) == 5
@@ -85,14 +85,35 @@ def test_cross_validation_splits_test_every_row_once(classification):
         assert not set(train) & set(test)
 
 
-def test_cross_validation_splits_drop_stratification_when_they_must():
-    """Five folds need five members of every class, and imbalanced tasks do not promise that."""
+def test_a_task_too_rare_to_stratify_is_skipped_rather_than_folded_blindly():
+    """
+    Plain KFold splits without looking at y, so a class too rare to stratify can sit entirely in
+    one test fold. The label encoder is fitted on the training half and then meets a label it has
+    never seen. Measured over 200 seeds at 300 rows and five folds, a one row class does this
+    every time. The eval callback runs every epoch, so that kills the run, not just the score.
+    """
     X, _ = make_task(rows=200, columns=4)
     y = pd.Series([0] * 197 + [1, 1, 1])
     assert not can_stratify(y, 5)
 
+    assert cross_validation_splits(X, y, folds=5, classification=True, seed=11) == []
+
+
+def test_every_returned_fold_has_its_classes_in_both_halves():
+    """The point of skipping: whatever comes back must be safe to fit an encoder on."""
+    X, _ = make_task(rows=200, columns=4)
+    y = pd.Series([0] * 100 + [1] * 90 + [2] * 10)
+
     splits = cross_validation_splits(X, y, folds=5, classification=True, seed=11)
     assert len(splits) == 5
+    for train, test in splits:
+        assert not set(y.iloc[test]) - set(y.iloc[train])
+
+
+def test_regression_still_folds_when_stratifying_is_meaningless():
+    """Continuous targets have no classes to lose, so nothing is skipped there."""
+    X, y = make_task(rows=200, columns=4, classification=False)
+    assert len(cross_validation_splits(X, y, folds=5, classification=False, seed=11)) == 5
 
 
 @pytest.mark.parametrize(

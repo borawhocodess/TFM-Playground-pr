@@ -154,9 +154,20 @@ def shrink_task(X, y, max_n_features: int, max_n_samples: int, classification: b
 
 
 def cross_validation_splits(X, y, folds: int, classification: bool, seed: int):
-    """Own folds over a shrunk task, because openml's split indices point at the rows we dropped."""
-    stratified = classification and can_stratify(y, folds)
-    splitter = StratifiedKFold if stratified else KFold
+    """
+    Own folds over a shrunk task, because openml's split indices point at the rows we dropped.
+
+    Returns nothing when a classification task cannot be folded safely. Plain KFold splits blindly,
+    so a class too rare to stratify can land entirely in one test fold with none of it in that
+    fold's training half. The label encoder is fitted on the training half, so it then meets a
+    label it has never seen and raises, as does roc auc on a class with no predictions. Measured
+    over 200 seeds at 300 rows and five folds: a one row class does this every time, a two row
+    class about a quarter of the time. The eval callback runs every epoch, so that is not a bad
+    score, it is a training run dying partway through. A skipped task costs one number instead.
+    """
+    if classification and not can_stratify(y, folds):
+        return []
+    splitter = StratifiedKFold if classification else KFold
     return list(splitter(n_splits=folds, shuffle=True, random_state=seed).split(X, y))
 
 
@@ -250,6 +261,8 @@ def get_openml_predictions(
         if oversized == "subsample":
             X, y = shrink_task(X, y, max_n_features, max_n_samples, classification, seed)
             splits = cross_validation_splits(X, y, folds, classification, seed)
+            if not splits:
+                continue  # a class too rare to fold safely, see cross_validation_splits
         else:
             repeat = 0  # code only supports one repeat
             available = task.get_split_dimensions()[1]

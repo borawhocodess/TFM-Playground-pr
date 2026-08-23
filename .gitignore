@@ -1,5 +1,6 @@
 checkpoints/
 workdir/
+build/
 wandb/
 logs/
 log/
@@ -20,4 +21,3 @@ __pycache__/
 .DS_Store
 
 uv.lock
-build/

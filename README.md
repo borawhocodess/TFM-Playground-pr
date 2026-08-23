@@ -2,8 +2,6 @@
 
 The purpose of this repository is to provide a fully open source playground for tabular foundation models.
 
-It contains much smaller and simpler implementations of several TFM architectures (nanoTabPFN, nanoTabICL, moddedNanoTabPFN, nanoTabFM) as well as a training loop, multiple interfaces to load prior data and an evaluation pipeline. 
-
 ```
 todo: clone and uv instructions
 ```

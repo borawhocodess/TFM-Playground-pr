@@ -17,6 +17,7 @@ from tfmplayground.priors import (
     FunctionPrior,
     ModdedNanoPrior,
     NanoTabICLPrior,
+    PriorConfig,
     SCMPrior,
 )
 from tfmplayground.train import default_prior, infer_criterion, infer_num_outputs
@@ -474,16 +475,6 @@ def test_pinned_tabicl_exposes_the_regression_prior_api():
     assert "regression" in inspect.signature(PriorDataset.__init__).parameters
 
 
-def test_legacy_prior_module_reexports_the_moved_api():
-    from tfmplayground.prior import DumpPrior as LegacyDumpPrior
-    from tfmplayground.prior import Prior as LegacyPrior
-    from tfmplayground.prior import hyperparameters
-
-    assert LegacyDumpPrior is DumpPrior
-    assert LegacyPrior.__module__ == "tfmplayground.priors.base"
-    assert callable(hyperparameters)
-
-
 def test_tabicl_prior_rejects_the_broken_parallel_sampler():
     from tfmplayground.external_priors.tabicl import TabICLPrior
 
@@ -512,18 +503,13 @@ def test_tabicl_batch_keeps_features_used_after_the_first_table():
 
 def test_modded_nano_prior_follows_the_batch_contract():
     """The vendored speedrun prior splits its own tables and reports the classification side."""
-    prior = ModdedNanoPrior(
-        num_datapoints_max=200,
-        num_features=8,
-        num_test_datapoints=64,
-        device="cpu",
-    )
+    prior = ModdedNanoPrior(PriorConfig(min_num_rows=200, max_num_rows=200, min_num_cols=8, max_num_cols=8), "cpu")
     x_train, y_train, x_test, y_test = prior.batch(4)
 
-    assert x_train.shape == (4, 136, 8)
-    assert y_train.shape == (4, 136)
-    assert x_test.shape == (4, 64, 8)
-    assert y_test.shape == (4, 64)
+    assert x_train.shape == (4, 72, 8)  # 200 rows less upstream's default 128 held out
+    assert y_train.shape == (4, 72)
+    assert x_test.shape == (4, 128, 8)
+    assert y_test.shape == (4, 128)
     assert torch.isfinite(x_train).all() and torch.isfinite(x_test).all()
     assert prior.problem_type == "classification"
     assert 2 <= int(y_train.max()) + 1 <= prior.max_num_classes
@@ -536,7 +522,7 @@ def test_modded_nano_prior_trains_a_model():
     parameters_before = [parameter.detach().clone() for parameter in model.parameters()]
     trained = pretrainTFM(
         model=model,
-        prior=ModdedNanoPrior(num_datapoints_max=200, num_features=8, num_test_datapoints=64, device="cpu"),
+        prior=ModdedNanoPrior(PriorConfig(min_num_rows=200, max_num_rows=200, min_num_cols=8, max_num_cols=8), "cpu"),
         eval=[],
         criterion=nn.CrossEntropyLoss(),
         epochs=1,
@@ -550,17 +536,14 @@ def test_modded_nano_prior_trains_a_model():
     )
 
 
-@pytest.mark.parametrize(
-    "kwargs, message",
-    [
-        (dict(num_datapoints_max=100, num_test_datapoints=100), "smaller than num_datapoints_max"),
-        (dict(min_num_classes=1), "min_num_classes"),
-    ],
-)
-def test_modded_nano_prior_rejects_bad_settings(kwargs, message):
-    """Bad arguments raise ValueError, not AssertionError, so python -O keeps the check."""
-    with pytest.raises(ValueError, match=message):
-        ModdedNanoPrior(**kwargs)
+def test_modded_nano_prior_keeps_the_upstream_check():
+    """
+    Upstream asserts that a table has more rows than it holds out. The assert is kept as it is,
+    unedited, so a newer upstream file can be pasted straight over the vendored section. Note that
+    python -O strips it, which is why the check is upstream's business and not a contract we make.
+    """
+    with pytest.raises(AssertionError):
+        ModdedNanoPrior(PriorConfig(min_num_rows=100, max_num_rows=100, min_num_test_rows=100, max_num_test_rows=100))
 
 
 def make_nanotabicl_prior(**kwargs):

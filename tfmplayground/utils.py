@@ -128,9 +128,7 @@ class FixedBinDistribution(nn.Module):
 
     def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         if logits.shape[-1] != self.borders.numel() - 1:
-            raise ValueError(
-                f"logits have {logits.shape[-1]} bins but the distribution has {self.borders.numel() - 1}"
-            )
+            raise ValueError(f"logits have {logits.shape[-1]} bins but the distribution has {self.borders.numel() - 1}")
         bins = torch.bucketize(target.contiguous(), self.borders[1:-1])
         probabilities = torch.softmax(logits.float(), dim=-1)
         predicted_cdf = probabilities.cumsum(dim=-1)

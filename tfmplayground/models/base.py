@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import torch
 from torch import nn
 
-OUTPUT_KINDS = ("bar_logits", "class_logits", "fixed_bin_logits", "quantiles", "scalar")
+OUTPUT_KINDS = ("bar_logits", "class_logits", "fixed_bin_logits", "generic_logits", "quantiles", "scalar")
 PROBLEMS = ("classification", "regression")
 
 
@@ -17,13 +17,16 @@ class TabularFoundationModel(nn.Module, ABC):
 
     Attributes:
         output_kinds (dict): maps each supported problem to class logits, fitted bar logits,
-            fixed-bin logits, quantiles, or one scalar.
+            fixed-bin logits, generic logits, quantiles, or one scalar. "generic_logits" is the
+            tabpfn lineage head: n logits whose meaning the criterion decides, so it defaults to a
+            fitted bar distribution and also accepts a quantile loss, while the structural kinds
+            accept exactly one criterion because the channels have to be read as they were written.
         num_outputs (int): number of values returned for each test row.
     """
 
     output_kinds: dict[str, str] = {
         "classification": "class_logits",
-        "regression": "bar_logits",
+        "regression": "generic_logits",
     }
     problems: tuple[str, ...] = PROBLEMS
     num_outputs: int | None = None

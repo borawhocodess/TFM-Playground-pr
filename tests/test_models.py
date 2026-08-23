@@ -13,7 +13,12 @@ from tfmplayground.models import (
     TabICLModel,
 )
 from tfmplayground.priors import FunctionPrior
-from tfmplayground.train import infer_criterion, infer_num_outputs, model_output_kind
+from tfmplayground.train import (
+    check_criterion_output_kind,
+    infer_criterion,
+    infer_num_outputs,
+    model_output_kind,
+)
 from tfmplayground.utils import FixedBinDistribution, QuantileLoss
 
 
@@ -301,10 +306,10 @@ def test_pretrainTFM_rejects_a_model_built_for_the_other_problem(make_model, pro
 @pytest.mark.parametrize(
     "make_model, kind",
     [
-        (make_nanotabpfn_regression, "bar_logits"),
+        (make_nanotabpfn_regression, "generic_logits"),
         (make_nanotabicl_regression, "quantiles"),
         (make_nanotabdpt_regression, "fixed_bin_logits"),
-        (make_moddednanotabpfn_regression, "bar_logits"),
+        (make_moddednanotabpfn_regression, "generic_logits"),
         (make_nanotabfm_regression, "scalar"),
         (make_tabicl_regression, "quantiles"),
     ],
@@ -320,6 +325,7 @@ def test_regression_criterion_follows_the_declared_head(make_model, kind):
     criterion = infer_criterion(model, make_regression_prior(), "cpu", problem="regression")
     criterion_type = {
         "bar_logits": FullSupportBarDistribution,
+        "generic_logits": FullSupportBarDistribution,  # inferred default, a quantile loss is also allowed
         "fixed_bin_logits": FixedBinDistribution,
         "quantiles": QuantileLoss,
         "scalar": nn.MSELoss,
@@ -371,7 +377,6 @@ def test_a_model_without_its_borders_cannot_claim_fixed_bins():
 @pytest.mark.parametrize(
     "make_model, criterion",
     [
-        (make_nanotabpfn_regression, QuantileLoss(NUM_BUCKETS)),
         (
             make_nanotabicl_regression,
             FullSupportBarDistribution(torch.linspace(-3, 3, NUM_BUCKETS + 1)),
@@ -382,7 +387,7 @@ def test_a_model_without_its_borders_cannot_claim_fixed_bins():
         ),
         (make_nanotabfm_regression, QuantileLoss(1)),
     ],
-    ids=["bar-as-quantiles", "quantiles-as-bar", "fixed-bins-as-bar", "scalar-as-quantiles"],
+    ids=["quantiles-as-bar", "fixed-bins-as-bar", "scalar-as-quantiles"],
 )
 def test_pretrainTFM_rejects_a_criterion_for_another_output_kind(make_model, criterion):
     with pytest.raises(ValueError, match="emits"):
@@ -448,22 +453,6 @@ def test_fixed_bin_crps_penalizes_distant_probability_mass_more():
     assert distribution(near_logits, target).item() < distribution(far_logits, target).item()
 
 
-def test_first_contract_draft_output_kind_remains_supported():
-    class LegacyQuantileModel(NanoTabPFNModel):
-        output_kind = "quantiles"
-
-    model = LegacyQuantileModel(
-        embedding_size=16,
-        num_attention_heads=2,
-        mlp_hidden_size=32,
-        num_layers=2,
-        num_outputs=NUM_BUCKETS,
-    )
-
-    assert model_output_kind(model, "regression") == "quantiles"
-    assert isinstance(infer_criterion(model, make_regression_prior(), "cpu", "regression"), QuantileLoss)
-
-
 def test_scalar_regression_keeps_its_contract_when_data_parallel_wraps_the_model():
     trained = pretrainTFM(
         model=make_nanotabfm_regression(),
@@ -492,3 +481,34 @@ def test_tabicl_evaluation_disables_numeric_attention_dropout():
         second = model(X_train, y_train, X_test)
 
     torch.testing.assert_close(first, second, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize(
+    "criterion",
+    [
+        lambda: FullSupportBarDistribution(torch.linspace(-3, 3, NUM_BUCKETS + 1)),
+        lambda: QuantileLoss(NUM_BUCKETS),
+    ],
+    ids=["bar", "quantiles"],
+)
+def test_a_generic_head_takes_either_regression_criterion(criterion):
+    """
+    The tabpfn lineage head is n logits whose meaning the criterion decides, so a caller who picks
+    a quantile loss deliberately is not making a mistake. Only the structural kinds are exact.
+    """
+    model = make_nanotabpfn_regression()
+    assert model.output_kinds["regression"] == "generic_logits"
+
+    check_criterion_output_kind(model, criterion(), "generic_logits")
+
+
+def test_a_generic_head_still_refuses_a_structural_criterion():
+    """Generic does not mean anything goes: fixed bins and scalars read the channels differently."""
+    model = make_nanotabpfn_regression()
+
+    with pytest.raises(ValueError, match="emits generic_logits"):
+        check_criterion_output_kind(
+            model, FixedBinDistribution(torch.linspace(-3, 3, NUM_BUCKETS + 1)), "generic_logits"
+        )
+    with pytest.raises(ValueError, match="emits generic_logits"):
+        check_criterion_output_kind(model, nn.MSELoss(), "generic_logits")

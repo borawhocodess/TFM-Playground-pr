@@ -208,7 +208,7 @@ def infer_criterion(
         return FixedBinDistribution(borders().to(device))
     if output_kind == "scalar":
         return ScalarMSELoss()
-    if output_kind != "bar_logits":
+    if output_kind not in ("bar_logits", "generic_logits"):
         raise ValueError(f"output_kind must be one of {sorted(OUTPUT_KINDS)}, got {output_kind!r}")
     return FullSupportBarDistribution(make_global_bucket_edges(prior, n_buckets=num_outputs, device=device))
 
@@ -219,26 +219,9 @@ def model_output_kind(model: TabularFoundationModel, problem: str | None) -> str
         problems = getattr(model, "problems", PROBLEMS)
         problem = problems[0] if len(problems) == 1 else "regression"
 
-    legacy_kind = vars(model).get("output_kind")
-    if legacy_kind is None:
-        legacy_kind = next(
-            (
-                cls.__dict__["output_kind"]
-                for cls in type(model).mro()
-                if cls is not TabularFoundationModel and "output_kind" in cls.__dict__
-            ),
-            None,
-        )
-
-    output_kinds = getattr(model, "output_kinds", None)
-    if legacy_kind is not None:
-        output_kind = "class_logits" if problem == "classification" else legacy_kind
-    elif output_kinds is not None and problem in output_kinds:
-        output_kind = output_kinds[problem]
-    else:
-        output_kind = "class_logits" if problem == "classification" else "bar_logits"
-    if output_kind == "bar":
-        output_kind = "bar_logits"
+    output_kinds = getattr(model, "output_kinds", None) or {}
+    default = "class_logits" if problem == "classification" else "generic_logits"
+    output_kind = output_kinds.get(problem, default)
     if output_kind not in OUTPUT_KINDS:
         raise ValueError(f"output_kind must be one of {sorted(OUTPUT_KINDS)}, got {output_kind!r}")
     return output_kind
@@ -258,6 +241,10 @@ def check_criterion_output_kind(model: TabularFoundationModel, criterion: nn.Mod
         actual = "scalar"
     else:
         actual = getattr(criterion, "output_kind", None)
+    # a generic head is n logits whose meaning the criterion decides, so it takes either of the two
+    # that read n logits. the structural kinds take exactly one, because the channels carry meaning
+    if expected == "generic_logits" and actual in ("bar_logits", "quantiles"):
+        return
     if actual != expected:
         raise ValueError(
             f"{type(model).__name__} emits {expected}, but {type(criterion).__name__} expects "
@@ -312,11 +299,7 @@ def infer_num_outputs(model: TabularFoundationModel) -> int:
 def train(
     model: TabularFoundationModel,
     prior: Prior,
-    criterion: nn.CrossEntropyLoss
-    | FullSupportBarDistribution
-    | FixedBinDistribution
-    | QuantileLoss
-    | nn.MSELoss,
+    criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | FixedBinDistribution | QuantileLoss | nn.MSELoss,
     epochs: int,
     steps_per_epoch: int = 25,
     batch_size: int = 4,

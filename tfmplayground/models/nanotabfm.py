@@ -433,12 +433,12 @@ class TabFMModel(TabularFoundationModel):
     # upstream decodes regression to a single scalar under mse, `MLP(d_model, [hidden], 1)`.
     # this copy takes num_outputs instead, so the head is only scalar at the upstream default of
     # 1 and carries bar logits above it. the kind therefore depends on how it was built
-    self.problems = ("classification",) if is_classifier else ("regression",)
-    if is_classifier:
-      self.output_kind, self.num_outputs = "class_logits", max_classes
-    else:
-      self.output_kind = "scalar" if num_outputs == 1 else "bar"
-      self.num_outputs = num_outputs
+    problem = "classification" if is_classifier else "regression"
+    self.problems = (problem,)
+    self.output_kinds = {
+        problem: "class_logits" if is_classifier else ("scalar" if num_outputs == 1 else "bar_logits")
+    }
+    self.num_outputs = max_classes if is_classifier else num_outputs
     self.max_classes = max_classes
     self.is_classifier = is_classifier
     ff = embed_dim * ff_factor

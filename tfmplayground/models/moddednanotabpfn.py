@@ -55,6 +55,7 @@ class ModdedNanoTabPFNModel(TabularFoundationModel):
         self.e = e
         self.h = h
         self.o = o
+        self.num_outputs = o
         self.feature_encoder = FeatureEncoder(e, feature_group_size=feature_group_size)
         self.target_encoder = TargetEncoder(e)
         self.transformer_encoder = TransformerEncoderStack(l, a, e, h, residual_decay=residual_decay)

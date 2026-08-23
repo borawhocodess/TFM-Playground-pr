@@ -112,46 +112,50 @@ def sampled_targets(prior, max_y, batch_size=8, max_batches=25):
     return np.concatenate(collected)
 
 
-class FixedBinLoss(nn.Module):
-    """
-    Cross entropy over bins the model fixed, decoded the way tabdpt v1.2 decodes.
+class FixedBinDistribution(nn.Module):
+    """CRPS loss and expectation decoder over model-defined finite bins."""
 
-    The decoder is upstream's: softmax the bin logits, take the bin centres, sum them weighted.
-
-    The objective here is NOT upstream's, and the earlier claim in this docstring that upstream
-    had not published one was wrong. The tabdpt v1.2 paper, section 3.3, says plainly: "We
-    optimize the CRPS loss between the predicted cumulative distribution and the target CDF
-    induced by the observed value." It also names cross entropy as the alternative it rejects,
-    because that needs an arbitrary smoothing bandwidth. Cross entropy is also blind to bin
-    order, so missing by one bin costs exactly what missing by forty costs.
-
-    This class is therefore a stopgap. Use CRPS instead, which is what the model contract branch
-    implements as FixedBinDistribution.
-
-    Unlike a FullSupportBarDistribution the outer bins carry no tails, so targets outside the
-    range fall into the end bins rather than into a half normal. That is what fixed bins mean.
-
-    Args:
-        borders (torch.Tensor): n_bins + 1 fixed edges, from the model that owns them.
-    """
+    output_kind = "fixed_bin_logits"
 
     def __init__(self, borders: torch.Tensor):
         super().__init__()
+        borders = torch.as_tensor(borders, dtype=torch.float32)
+        if borders.ndim != 1 or borders.numel() < 2:
+            raise ValueError("borders must be a one-dimensional tensor with at least two values")
+        if not torch.all(borders[1:] > borders[:-1]):
+            raise ValueError("borders must be strictly increasing")
         self.register_buffer("borders", borders)
-        self.register_buffer("centers", (borders[:-1] + borders[1:]) / 2)
 
     def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        borders = self.borders.to(logits.device)
-        index = torch.bucketize(target.detach(), borders[1:-1])
-        losses = nn.functional.cross_entropy(logits.reshape(-1, logits.shape[-1]), index.reshape(-1), reduction="none")
-        return losses.reshape(target.shape)
+        if logits.shape[-1] != self.borders.numel() - 1:
+            raise ValueError(f"logits have {logits.shape[-1]} bins but the distribution has {self.borders.numel() - 1}")
+        bins = torch.bucketize(target.contiguous(), self.borders[1:-1])
+        probabilities = torch.softmax(logits.float(), dim=-1)
+        predicted_cdf = probabilities.cumsum(dim=-1)
+        bin_indices = torch.arange(logits.shape[-1], device=logits.device)
+        target_cdf = (bin_indices >= bins.unsqueeze(-1)).to(predicted_cdf.dtype)
+        widths = self.borders[1:] - self.borders[:-1]
+        return (widths * (predicted_cdf - target_cdf).square()).sum(dim=-1)
 
     def mean(self, logits: torch.Tensor) -> torch.Tensor:
-        return torch.softmax(logits, dim=-1) @ self.centers.to(logits.device)
+        centres = (self.borders[:-1] + self.borders[1:]) / 2
+        probabilities = torch.softmax(logits.float(), dim=-1)
+        return (probabilities * centres).sum(dim=-1)
+
+
+class ScalarMSELoss(nn.MSELoss):
+    """Elementwise MSE for a model that emits one scalar per row."""
+
+    output_kind = "scalar"
+
+    def __init__(self):
+        super().__init__(reduction="none")
 
 
 class QuantileLoss(nn.Module):
     """Pinball loss summed over a fixed grid of quantile levels."""
+
+    output_kind = "quantiles"
 
     def __init__(self, n_quantiles: int):
         super().__init__()

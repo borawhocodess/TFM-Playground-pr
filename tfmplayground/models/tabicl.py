@@ -30,6 +30,8 @@ class TabICLModel(TabularFoundationModel):
     def __init__(self, max_classes: int = 10, num_quantiles: int = 999, **kwargs):
         super().__init__()
         self.problems = ("classification",) if max_classes > 0 else ("regression",)
+        self.output_kind = "class_logits" if max_classes > 0 else "quantiles"
+        self.num_outputs = max_classes if max_classes > 0 else num_quantiles
         self.model = TabICL(max_classes=max_classes, num_quantiles=num_quantiles, **kwargs)
 
     def forward(self, X_train: torch.Tensor, y_train: torch.Tensor, X_test: torch.Tensor) -> torch.Tensor:

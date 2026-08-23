@@ -176,7 +176,7 @@ class TabICLPriorDataLoader(DataLoader):
             num_features_max=max_features,
             max_num_classes=max_num_classes or 2,
             prior_type=prior_type,
-            n_jobs=-1,
+            n_jobs=1,  # the parallel path cannot pickle tabicl's samplers, see TabICLPrior
         )
 
     def tabicl_to_ours(self):

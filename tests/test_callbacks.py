@@ -1,11 +1,12 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 import torch
 from torch import nn
 
 from tfmplayground import pretrainTFM
-from tfmplayground.callbacks import Callback, ConsoleLoggerCallback, ExperimentCallback
+from tfmplayground.callbacks import Callback, ConsoleLoggerCallback, ExperimentCallback, safe_name
 from tfmplayground.models import NanoTabPFNModel
 from tfmplayground.priors import FunctionPrior
 
@@ -151,3 +152,82 @@ def test_callback_measurement_is_optional():
     train_with([ConsoleLoggerCallback(), recorder], epochs=1)
 
     assert len(recorder.seen) == 1
+
+
+class Exploding(Callback):
+    """Stands in for anything that can fail mid training."""
+
+    def on_epoch_end(self, epoch, epoch_time, loss, model, **kwargs):
+        raise RuntimeError("boom")
+
+    def close(self):
+        pass
+
+
+def test_a_crashed_run_is_not_recorded_as_finished(tmp_path):
+    """A record that claims success when the run died is worse than no record, because it is believed."""
+    callback = ExperimentCallback(name="unit", experiments_dir=str(tmp_path), console=False, source="")
+    with pytest.raises(RuntimeError, match="boom"):
+        train_with([Exploding(), callback], epochs=1)
+
+    record = (tmp_path / "classification" / "unit" / callback.e_id / f"{callback.e_id}-log.txt").read_text()
+    assert "status: failed: RuntimeError: boom" in record
+    assert callback.status.startswith("failed")
+
+
+def test_a_completed_run_says_so(tmp_path):
+    callback = ExperimentCallback(name="unit", experiments_dir=str(tmp_path), console=False, source="")
+    train_with([callback], epochs=1)
+    callback.close()
+
+    record = (tmp_path / "classification" / "unit" / callback.e_id / f"{callback.e_id}-log.txt").read_text()
+    assert "status: completed" in record
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("../../etc", "etc"),
+        ("a/b", "a-b"),
+        (".hidden", "hidden"),
+        ("keeps_this-1.0", "keeps_this-1.0"),
+        ("  spaced  out ", "spaced-out"),
+    ],
+)
+def test_names_cannot_escape_the_experiments_directory(name, expected):
+    """Names go straight into paths, so a slash or a .. would write somewhere else entirely."""
+    assert safe_name(name) == expected
+
+
+def test_a_name_that_traverses_stays_inside(tmp_path):
+    callback = ExperimentCallback(name="../escape", experiments_dir=str(tmp_path), console=False, source="")
+    assert Path(callback.e_dir).resolve().is_relative_to(Path(tmp_path).resolve())
+
+
+def test_a_callback_cannot_shadow_the_criterion():
+    """dist is the training loop's own keyword, and a duplicate would be a TypeError."""
+
+    class ShadowsDist(Callback):
+        def on_epoch_end(self, epoch, epoch_time, loss, model, **kwargs):
+            return {"dist": "not the criterion"}
+
+        def close(self):
+            pass
+
+    recorder = Recording()
+    train_with([ShadowsDist(), recorder], epochs=1)
+    assert recorder.seen[0]["dist"] is not None and recorder.seen[0]["dist"] != "not the criterion"
+
+
+def test_a_measurement_that_is_not_a_mapping_is_refused():
+    """`if reported:` used to accept a float and then explode inside dict.update()."""
+
+    class ReturnsAFloat(Callback):
+        def on_epoch_end(self, epoch, epoch_time, loss, model, **kwargs):
+            return 0.5
+
+        def close(self):
+            pass
+
+    with pytest.raises(TypeError, match="have to be a mapping"):
+        train_with([ReturnsAFloat()], epochs=1)

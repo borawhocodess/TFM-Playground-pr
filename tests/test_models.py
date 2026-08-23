@@ -13,8 +13,8 @@ from tfmplayground.models import (
     TabICLModel,
 )
 from tfmplayground.priors import FunctionPrior
-from tfmplayground.train import infer_criterion
-from tfmplayground.utils import QuantileLoss
+from tfmplayground.train import check_criterion_kind, infer_criterion, infer_num_outputs
+from tfmplayground.utils import FixedBinLoss, QuantileLoss
 
 
 def make_nanotabpfn():
@@ -318,7 +318,8 @@ def test_regression_criterion_follows_the_declared_head(make_model, kind):
     model = make_model()
     assert model.output_kind == kind
     criterion = infer_criterion(model, make_regression_prior(), "cpu", problem="regression")
-    assert isinstance(criterion, QuantileLoss if kind == "quantiles" else FullSupportBarDistribution)
+    expected = {"quantiles": QuantileLoss, "fixed_bin_logits": FixedBinLoss, "bar": FullSupportBarDistribution}
+    assert isinstance(criterion, expected[kind])
     if kind == "fixed_bin_logits":
         # the model's own bins, not edges fitted from the prior, which would mean something else
         assert torch.equal(criterion.borders.cpu(), model.regression_borders())
@@ -360,3 +361,83 @@ def test_a_model_without_its_borders_cannot_claim_fixed_bins():
 
     with pytest.raises(ValueError, match="no regression_borders"):
         infer_criterion(model, make_regression_prior(), "cpu", problem="regression")
+
+
+def test_tabicl_predicts_deterministically_with_dropout_on():
+    """
+    The wrapper forces the upstream training path, which means forcing training mode on the whole
+    tree, which is where dropout lives. If any of it stays on, the same input gives two answers.
+    """
+    torch.manual_seed(0)
+    model = make_tabicl(max_classes=3, dropout=0.5).eval()
+    X_train, y_train = torch.randn(2, 12, 5), torch.randint(0, 3, (2, 12)).float()
+    X_test = torch.randn(2, 5, 5)
+
+    with torch.no_grad():
+        first, second = model(X_train, y_train, X_test), model(X_train, y_train, X_test)
+
+    assert torch.equal(first, second)
+    assert all(not module.training for module in model.modules())  # modes restored
+
+
+@pytest.mark.parametrize(
+    "make_model, criterion, message",
+    [
+        (
+            make_nanotabicl_regression,
+            lambda: FullSupportBarDistribution(torch.linspace(-3, 3, 9)),
+            "needs QuantileLoss",
+        ),
+        (make_nanotabdpt_regression, lambda: QuantileLoss(NUM_BUCKETS), "needs FixedBinLoss"),
+        (make_nanotabicl, lambda: QuantileLoss(3), "built for classification"),
+    ],
+    ids=["bar-into-quantiles", "quantiles-into-fixed-bins", "regression-loss-into-class-head"],
+)
+def test_an_explicit_criterion_must_match_the_head(make_model, criterion, message):
+    """
+    Inference reads output_kind, but a criterion handed in by the caller used to go unchecked, so
+    the very bug output_kind exists to stop was still reachable through the front door.
+    """
+    with pytest.raises(ValueError, match=message):
+        pretrainTFM(
+            model=make_model(),
+            prior=make_regression_prior(),
+            eval=[],
+            criterion=criterion(),
+            epochs=1,
+            steps_per_epoch=1,
+            batch_size=2,
+            device="cpu",
+        )
+
+
+def test_a_generic_head_accepts_either_regression_criterion():
+    """The tabpfn lineage head is n logits whose meaning is the criterion's, so do not over police it."""
+    model = make_nanotabpfn_regression()
+    assert model.output_kind == "bar"
+
+    for criterion in (FullSupportBarDistribution(torch.linspace(-3, 3, NUM_BUCKETS + 1)), QuantileLoss(NUM_BUCKETS)):
+        check_criterion_kind(model, criterion, "regression")
+
+
+def test_scalar_heads_are_refused_rather_than_mistrained():
+    """
+    A scalar head emits (batch, rows, 1) against targets of (batch, rows), which mse broadcasts
+    into (batch, rows, rows) without complaint. Telling someone to pass a criterion invited that.
+    """
+    model = TabFMModel(max_classes=0, is_classifier=False)  # upstream's shape, one value per row
+    assert model.output_kind == "scalar"
+
+    with pytest.raises(NotImplementedError, match="does not make it safe"):
+        check_criterion_kind(model, torch.nn.MSELoss(), "regression")
+    with pytest.raises(NotImplementedError, match="scalar regression head"):
+        infer_criterion(model, make_regression_prior(), "cpu", problem="regression")
+
+
+def test_declared_output_counts_are_used_without_probing():
+    """Probing runs a forward pass, which a custom model carrying running statistics would notice."""
+    model = make_nanotabicl_regression()
+    assert model.num_outputs == NUM_BUCKETS
+
+    model.forward = None  # probing would explode, the declaration must be enough
+    assert infer_num_outputs(model) == NUM_BUCKETS

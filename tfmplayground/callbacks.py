@@ -1,5 +1,6 @@
 import os
 import platform
+import re
 import socket
 import subprocess
 import sys
@@ -11,10 +12,31 @@ from datetime import datetime
 import torch
 
 PROBLEMS = ("classification", "regression")
+UNSAFE_IN_A_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def safe_name(name: str) -> str:
+    """
+    Names go straight into paths, so a name with a slash or a .. would write somewhere else.
+
+    Anything outside letters, digits, dot, dash and underscore collapses to a dash, and leading
+    dots go, so a name can neither traverse upwards nor start a hidden directory.
+    """
+    name = UNSAFE_IN_A_NAME.sub("-", name.strip()).lstrip(".-")
+    return name[:64]
 
 
 class Callback(ABC):
-    """Abstract base class for callbacks."""
+    """
+    Abstract base class for callbacks.
+
+    Attributes:
+        status (str): how training ended, set by the training loop before close() is called.
+            "completed", "interrupted", or "failed: <error>". A record that always claims success
+            is worse than no record, because it is believed.
+    """
+
+    status: str = "completed"
 
     @abstractmethod
     def on_epoch_end(self, epoch: int, epoch_time: float, loss: float, model, **kwargs):
@@ -153,7 +175,7 @@ class ExperimentCallback(BaseLoggerCallback):
         self.problem = problem
         timestamp = self.started.strftime("%y%m%d-%H%M%S")
         uid = uuid.uuid4().hex[:8]
-        name = name.strip()
+        name = safe_name(name)
         self.e_id = f"{timestamp}-{uid}-{name}" if name else f"{timestamp}-{uid}"
         root = os.path.join(experiments_dir, problem)
         root = os.path.join(root, name) if name else root
@@ -180,8 +202,11 @@ class ExperimentCallback(BaseLoggerCallback):
         self.print0(f"cuda: {torch.version.cuda}")
         self.print0(f"mps: {torch.backends.mps.is_available()}")
         if torch.cuda.is_available():
-            smi = subprocess.run(["nvidia-smi"], capture_output=True, text=True, check=False)
-            self.print0(smi.stdout)
+            try:  # cuda can be available with the tool absent, in a container for instance
+                smi = subprocess.run(["nvidia-smi"], capture_output=True, text=True, check=False)
+                self.print0(smi.stdout)
+            except OSError as error:
+                self.print0(f"nvidia-smi unavailable: {error}")
         if config is not None:
             self.print0("=" * 100)
             self.print0("config:")
@@ -218,6 +243,7 @@ class ExperimentCallback(BaseLoggerCallback):
             self.print0(f"peak memory allocated: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB")
             self.print0(f"peak memory reserved: {torch.cuda.max_memory_reserved() // 1024 // 1024} MiB")
         self.print0(f"epochs: {self.epochs}")
+        self.print0(f"status: {self.status}", console=self.status != "completed")
         self.print0(f"end timestamp: {ended.strftime('%Y-%m-%d %H:%M:%S')}")
         self.print0(f"runtime: {(ended - self.started).total_seconds() / 60:.2f} mins")
         self.print0(f"experiment done: {self.e_id}", console=True)

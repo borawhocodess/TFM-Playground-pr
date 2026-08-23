@@ -28,7 +28,9 @@ dependencies = [
     "pfns==0.3.0",
     "openml==0.15.1",
     "interpret-core",  # undeclared ticl dependency, ticl/__init__ fails to import without it
-    "tabicl[pretrain] @ git+https://github.com/soda-inria/tabicl.git@main",
+    # pinned to the commit this repo was reviewed against, not main: the regression flag is in no
+    # release yet, and an unpinned branch moves under you
+    "tabicl[pretrain] @ git+https://github.com/soda-inria/tabicl.git@8f1aa2098c894ab91dba15209cf2002ba4be6c6c",
     "ticl @ git+https://github.com/microsoft/ticl.git@main",
     "tabpfn-v1-prior @ git+https://github.com/automl/tabpfn-v1-prior.git",
     "mlflow",

@@ -112,6 +112,37 @@ def sampled_targets(prior, max_y, batch_size=8, max_batches=25):
     return np.concatenate(collected)
 
 
+class FixedBinLoss(nn.Module):
+    """
+    Cross entropy over bins the model fixed, decoded the way tabdpt v1.2 decodes.
+
+    The decoder is upstream's exactly: softmax the bin logits, take the bin centres, sum them
+    weighted. The objective is not, because tabdpt's v1.2 training code is not public and the
+    older training repo regressed a single scalar under mse instead. Cross entropy on the bin a
+    target falls into is the ordinary choice for a binned head, and it is ours, not theirs.
+
+    Unlike a FullSupportBarDistribution the outer bins carry no tails, so targets outside the
+    range fall into the end bins rather than into a half normal. That is what fixed bins mean.
+
+    Args:
+        borders (torch.Tensor): n_bins + 1 fixed edges, from the model that owns them.
+    """
+
+    def __init__(self, borders: torch.Tensor):
+        super().__init__()
+        self.register_buffer("borders", borders)
+        self.register_buffer("centers", (borders[:-1] + borders[1:]) / 2)
+
+    def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        borders = self.borders.to(logits.device)
+        index = torch.bucketize(target.detach(), borders[1:-1])
+        losses = nn.functional.cross_entropy(logits.reshape(-1, logits.shape[-1]), index.reshape(-1), reduction="none")
+        return losses.reshape(target.shape)
+
+    def mean(self, logits: torch.Tensor) -> torch.Tensor:
+        return torch.softmax(logits, dim=-1) @ self.centers.to(logits.device)
+
+
 class QuantileLoss(nn.Module):
     """Pinball loss summed over a fixed grid of quantile levels."""
 

@@ -155,6 +155,8 @@ class TabDPTModel(TabularFoundationModel):
         # the v1.2 inference release, where the head carries a separate section of bin logits and
         # the regressor decodes them against evenly spaced centres between the two bounds below
         self.problems = ("classification",) if classification else ("regression",)
+        self.output_kind = "class_logits" if classification else "fixed_bin_logits"
+        self.num_outputs = n_out if classification else regression_bin_count
         self.classification = classification
 
     def regression_borders(self) -> torch.Tensor:

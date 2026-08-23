@@ -1,4 +1,5 @@
 import time
+from collections.abc import Mapping
 
 import schedulefree
 import torch
@@ -9,7 +10,7 @@ from tfmplayground.callbacks import Callback, ConsoleLoggerCallback
 from tfmplayground.models import NanoTabPFNModel, TabularFoundationModel
 from tfmplayground.models.base import OUTPUT_KINDS
 from tfmplayground.priors import Prior, PriorDataLoader
-from tfmplayground.utils import QuantileLoss, get_default_device, make_global_bucket_edges
+from tfmplayground.utils import FixedBinLoss, QuantileLoss, get_default_device, make_global_bucket_edges
 
 PROBLEMS = ("classification", "regression")
 
@@ -86,6 +87,7 @@ def pretrainTFM(
     check_model_problem(model, problem)
     if criterion is None:
         criterion = infer_criterion(model, prior, device, problem)
+    check_criterion_kind(model, criterion, problem)
     num_outputs = infer_num_outputs(model)
     max_num_classes = getattr(prior, "max_num_classes", None)
     if isinstance(criterion, nn.CrossEntropyLoss) and max_num_classes and int(max_num_classes) > num_outputs:
@@ -187,17 +189,56 @@ def infer_criterion(
                 "so there is nothing to say what its bins are"
             )
         # the model fixed these bins when it was built, so fitting new ones from the prior would
-        # hand its channels ranges it never meant. the tails are ours, upstream decodes the
-        # centres directly, but the edges are the model's
-        return FullSupportBarDistribution(borders().to(device))
+        # hand its channels ranges it never meant
+        return FixedBinLoss(borders().to(device))
     if output_kind == "scalar":
-        raise NotImplementedError(
-            f"{type(model).__name__} declares a scalar regression head, which upstream trains "
-            "under mse. nothing here fits that yet, so pass criterion= yourself"
-        )
+        raise NotImplementedError(SCALAR_UNSUPPORTED.format(model=type(model).__name__))
     if output_kind != "bar":
         raise ValueError(f"output_kind must be one of {sorted(OUTPUT_KINDS)}, got {output_kind!r}")
     return FullSupportBarDistribution(make_global_bucket_edges(prior, n_buckets=num_outputs, device=device))
+
+
+SCALAR_UNSUPPORTED = (
+    "{model} declares a scalar regression head, one value per row, which upstream trains under "
+    "mse. nothing here trains that yet, and passing your own criterion does not make it safe: a "
+    "scalar head emits (batch, rows, 1) against targets of (batch, rows), which mse broadcasts "
+    "into (batch, rows, rows) without complaint. build it with more than one output instead"
+)
+
+# what each head will accept. quantiles and fixed bins are structural, the criterion has to read
+# the channels the way the model wrote them. "bar" is the tabpfn lineage's generic n logit head,
+# where the meaning comes from the criterion, so more than one is legitimate there
+CRITERION_KINDS = {
+    "quantiles": (QuantileLoss,),
+    "fixed_bin_logits": (FixedBinLoss,),
+    "bar": (FullSupportBarDistribution, QuantileLoss),
+}
+
+
+def check_criterion_kind(model: TabularFoundationModel, criterion, problem: str | None):
+    """
+    The criterion has to match what the head emits, however the criterion got here.
+
+    Inference reads output_kind, but a criterion handed in by the caller used to go unchecked, so
+    a bar distribution with the right number of buckets went straight into a quantile head and
+    trained against the wrong objective in silence.
+    """
+    if isinstance(criterion, nn.CrossEntropyLoss):
+        return
+    output_kind = getattr(model, "output_kind", "bar")
+    if output_kind == "scalar":
+        raise NotImplementedError(SCALAR_UNSUPPORTED.format(model=type(model).__name__))
+    if output_kind == "class_logits":
+        raise ValueError(
+            f"{type(model).__name__} was built for classification, so its head holds class "
+            f"logits, but {type(criterion).__name__} is a regression criterion"
+        )
+    expected = CRITERION_KINDS.get(output_kind)
+    if expected is not None and not isinstance(criterion, expected):
+        names = " or ".join(kind.__name__ for kind in expected)
+        raise ValueError(
+            f"{type(model).__name__} emits {output_kind}, which needs {names}, got {type(criterion).__name__}"
+        )
 
 
 def check_model_problem(model: TabularFoundationModel, problem: str | None):
@@ -219,7 +260,16 @@ def check_model_problem(model: TabularFoundationModel, problem: str | None):
 
 
 def infer_num_outputs(model: TabularFoundationModel) -> int:
-    """Runs a tiny forward pass to find out how many outputs the model produces per test row."""
+    """
+    How many outputs the model produces per test row.
+
+    Taken from the model when it declares one. The throwaway forward pass below is the fallback
+    for third party models that do not, and it runs in whatever mode the model is in, which a
+    custom model carrying running statistics would notice.
+    """
+    declared = getattr(model, "num_outputs", None)
+    if isinstance(declared, int) and declared > 0:
+        return declared
     parameter = next(model.parameters())
     X_train = torch.randn(1, 8, 4, device=parameter.device, dtype=parameter.dtype)
     y_train = torch.randint(0, 2, (1, 8), device=parameter.device).to(parameter.dtype)
@@ -254,6 +304,7 @@ def train(
     optimizer = schedulefree.AdamWScheduleFree(model.parameters(), lr=lr, weight_decay=0.0)
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
+    status = "completed"
 
     batches = iter(PriorDataLoader(prior, batch_size))
 
@@ -321,15 +372,24 @@ def train(
                     end_time - epoch_start_time,
                     mean_loss,
                     (model.module if multi_gpu else model),
-                    dist=criterion,
-                    **metrics,
+                    **{**metrics, "dist": criterion},  # dist is ours, a callback cannot shadow it
                 )
-                if reported:
+                if isinstance(reported, Mapping):
                     metrics.update(reported)
+                elif reported is not None:
+                    raise TypeError(
+                        f"{type(callback).__name__}.on_epoch_end returned "
+                        f"{type(reported).__name__}, measurements have to be a mapping or nothing"
+                    )
     except KeyboardInterrupt:
-        pass
+        status = "interrupted"
+    except Exception as error:
+        status = f"failed: {type(error).__name__}: {error}"
+        raise
     finally:
+        # a record that says a run finished when it crashed is worse than no record at all
         for callback in callbacks:
+            callback.status = status
             callback.close()
 
     return (model.module if multi_gpu else model), mean_loss

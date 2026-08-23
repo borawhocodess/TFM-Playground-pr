@@ -11,7 +11,6 @@ from tfmplayground.models import NanoTabPFNModel, TabularFoundationModel
 from tfmplayground.models.base import OUTPUT_KINDS, PROBLEMS
 from tfmplayground.priors import Prior, PriorDataLoader
 from tfmplayground.utils import (
-    FixedBinDistribution,
     QuantileLoss,
     ScalarMSELoss,
     get_default_device,
@@ -30,12 +29,7 @@ def pretrainTFM(
     eval: Callback | list[Callback] | None = None,
     regime=None,
     problem: str | None = None,
-    criterion: nn.CrossEntropyLoss
-    | FullSupportBarDistribution
-    | FixedBinDistribution
-    | QuantileLoss
-    | nn.MSELoss
-    | None = None,
+    criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss | nn.MSELoss | None = None,
     epochs: int = 100,
     steps_per_epoch: int = 25,
     batch_size: int = 4,
@@ -108,12 +102,9 @@ def pretrainTFM(
         raise ValueError(
             f"the prior holds up to {int(max_num_classes)} classes but the model has {num_outputs} outputs"
         )
-    if isinstance(criterion, FullSupportBarDistribution | FixedBinDistribution) and (
-        criterion.borders.numel() - 1 != num_outputs
-    ):
-        units = "buckets" if isinstance(criterion, FullSupportBarDistribution) else "bins"
+    if isinstance(criterion, FullSupportBarDistribution) and criterion.borders.numel() - 1 != num_outputs:
         raise ValueError(
-            f"the criterion has {criterion.borders.numel() - 1} {units} but the model has {num_outputs} outputs"
+            f"the criterion has {criterion.borders.numel() - 1} buckets but the model has {num_outputs} outputs"
         )
     if isinstance(criterion, QuantileLoss) and criterion.alphas.numel() != num_outputs:
         raise ValueError(
@@ -182,7 +173,7 @@ def default_model(problem: str | None) -> TabularFoundationModel:
 
 def infer_criterion(
     model: TabularFoundationModel, prior: Prior, device: torch.device, problem: str | None = None
-) -> nn.CrossEntropyLoss | FullSupportBarDistribution | FixedBinDistribution | QuantileLoss | nn.MSELoss:
+) -> nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss | nn.MSELoss:
     """
     Picks a loss criterion based on the problem or what the prior provides: cross entropy for classification,
     a bar distribution fitted on the targets of a regression prior and a quantile loss otherwise.
@@ -198,14 +189,6 @@ def infer_criterion(
     output_kind = model_output_kind(model, problem or "regression")
     if output_kind == "quantiles":
         return QuantileLoss(num_outputs)
-    if output_kind == "fixed_bin_logits":
-        borders = getattr(model, "regression_borders", None)
-        if not callable(borders):
-            raise ValueError(
-                f"{type(model).__name__} declares fixed_bin_logits but has no regression_borders(), "
-                "so there is nothing to say what its bins are"
-            )
-        return FixedBinDistribution(borders().to(device))
     if output_kind == "scalar":
         return ScalarMSELoss()
     if output_kind not in ("bar_logits", "generic_logits"):
@@ -231,8 +214,6 @@ def check_criterion_output_kind(model: TabularFoundationModel, criterion: nn.Mod
     """Reject a criterion that interprets the model's output channels differently."""
     if isinstance(criterion, nn.CrossEntropyLoss):
         actual = "class_logits"
-    elif isinstance(criterion, FixedBinDistribution):
-        actual = "fixed_bin_logits"
     elif isinstance(criterion, FullSupportBarDistribution):
         actual = "bar_logits"
     elif isinstance(criterion, QuantileLoss):
@@ -299,7 +280,7 @@ def infer_num_outputs(model: TabularFoundationModel) -> int:
 def train(
     model: TabularFoundationModel,
     prior: Prior,
-    criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | FixedBinDistribution | QuantileLoss | nn.MSELoss,
+    criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss | nn.MSELoss,
     epochs: int,
     steps_per_epoch: int = 25,
     batch_size: int = 4,

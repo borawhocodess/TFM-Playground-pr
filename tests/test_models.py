@@ -8,7 +8,6 @@ from tfmplayground.models import (
     ModdedNanoTabPFNModel,
     NanoTabICLv2,
     NanoTabPFNModel,
-    TabDPTModel,
     TabFMModel,
     TabICLModel,
 )
@@ -19,7 +18,7 @@ from tfmplayground.train import (
     infer_num_outputs,
     model_output_kind,
 )
-from tfmplayground.utils import FixedBinDistribution, QuantileLoss
+from tfmplayground.utils import QuantileLoss
 
 
 def make_nanotabpfn():
@@ -45,25 +44,6 @@ def make_nanotabicl():
         icl_nhead=2,
         n_cls_cols=2,
         n_cls_rows=8,
-    )
-
-
-def make_nanotabdpt():
-    return TabDPTModel(
-        dropout=0.0,
-        n_out=3,
-        regression_bin_count=8,
-        regression_bin_min=-3.0,
-        regression_bin_max=3.0,
-        nhead=2,
-        nhid=32,
-        ninp=16,
-        nlayers=2,
-        num_features=8,
-        base_len=32,
-        max_len=64,
-        y_encoder_dim=8,
-        classification=True,
     )
 
 
@@ -94,8 +74,8 @@ def make_tabicl(max_classes=3, **kwargs):
 
 @pytest.mark.parametrize(
     "make_model",
-    [make_nanotabpfn, make_nanotabicl, make_nanotabdpt, make_moddednanotabpfn, make_nanotabfm, make_tabicl],
-    ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm", "tabicl"],
+    [make_nanotabpfn, make_nanotabicl, make_moddednanotabpfn, make_nanotabfm, make_tabicl],
+    ids=["nanotabpfn", "nanotabicl", "moddednanotabpfn", "nanotabfm", "tabicl"],
 )
 def test_forward_follows_base_contract(make_model):
     """Every model maps (X_train, y_train, X_test) to per-test-row logits."""
@@ -121,8 +101,8 @@ def get_three_class_batch(batch_size, num_datapoints, num_features):
 
 @pytest.mark.parametrize(
     "make_model",
-    [make_nanotabpfn, make_nanotabicl, make_nanotabdpt, make_moddednanotabpfn, make_nanotabfm, make_tabicl],
-    ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm", "tabicl"],
+    [make_nanotabpfn, make_nanotabicl, make_moddednanotabpfn, make_nanotabfm, make_tabicl],
+    ids=["nanotabpfn", "nanotabicl", "moddednanotabpfn", "nanotabfm", "tabicl"],
 )
 def test_pretrainTFM_swaps_any_model(make_model):
     """Every model drops into pretrainTFM as-is and comes back trained."""
@@ -185,25 +165,6 @@ def make_nanotabicl_regression():
     )
 
 
-def make_nanotabdpt_regression():
-    return TabDPTModel(
-        dropout=0.0,
-        n_out=NUM_BUCKETS,
-        regression_bin_count=NUM_BUCKETS,
-        regression_bin_min=-3.0,
-        regression_bin_max=3.0,
-        nhead=2,
-        nhid=32,
-        ninp=16,
-        nlayers=2,
-        num_features=8,
-        base_len=32,
-        max_len=64,
-        y_encoder_dim=8,
-        classification=False,
-    )
-
-
 def make_moddednanotabpfn_regression():
     return ModdedNanoTabPFNModel(l=2, a=2, e=16, h=32, o=NUM_BUCKETS)
 
@@ -238,12 +199,11 @@ def make_regression_prior():
     [
         (make_nanotabpfn_regression, NUM_BUCKETS, True),
         (make_nanotabicl_regression, NUM_BUCKETS, True),
-        (make_nanotabdpt_regression, NUM_BUCKETS, True),
         (make_moddednanotabpfn_regression, NUM_BUCKETS, True),
         (make_nanotabfm_regression, 1, False),
         (make_tabicl_regression, NUM_BUCKETS, True),
     ],
-    ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm", "tabicl"],
+    ids=["nanotabpfn", "nanotabicl", "moddednanotabpfn", "nanotabfm", "tabicl"],
 )
 def test_pretrainTFM_trains_any_model_for_regression(make_model, num_outputs, has_decoder):
     """Regression goes through every model too, not just the one the other regression tests use."""
@@ -308,12 +268,11 @@ def test_pretrainTFM_rejects_a_model_built_for_the_other_problem(make_model, pro
     [
         (make_nanotabpfn_regression, "generic_logits"),
         (make_nanotabicl_regression, "quantiles"),
-        (make_nanotabdpt_regression, "fixed_bin_logits"),
         (make_moddednanotabpfn_regression, "generic_logits"),
         (make_nanotabfm_regression, "scalar"),
         (make_tabicl_regression, "quantiles"),
     ],
-    ids=["nanotabpfn", "nanotabicl", "nanotabdpt", "moddednanotabpfn", "nanotabfm", "tabicl"],
+    ids=["nanotabpfn", "nanotabicl", "moddednanotabpfn", "nanotabfm", "tabicl"],
 )
 def test_regression_criterion_follows_the_declared_head(make_model, kind):
     """
@@ -326,52 +285,10 @@ def test_regression_criterion_follows_the_declared_head(make_model, kind):
     criterion_type = {
         "bar_logits": FullSupportBarDistribution,
         "generic_logits": FullSupportBarDistribution,  # inferred default, a quantile loss is also allowed
-        "fixed_bin_logits": FixedBinDistribution,
         "quantiles": QuantileLoss,
         "scalar": nn.MSELoss,
     }[kind]
     assert isinstance(criterion, criterion_type)
-    if kind == "fixed_bin_logits":
-        # the model's own bins, not edges fitted from the prior, which would mean something else
-        assert torch.equal(criterion.borders.cpu(), model.regression_borders())
-
-
-def test_fixed_bins_are_not_refitted_from_the_prior():
-    """
-    tabdpt's regression channels mean evenly spaced bins between the bounds it was built with.
-    Fitting edges from the prior instead hands those channels ranges the model never meant, and
-    nothing about the shapes would object.
-    """
-    model = TabDPTModel(
-        dropout=0.0,
-        n_out=NUM_BUCKETS,
-        regression_bin_count=NUM_BUCKETS,
-        regression_bin_min=-7.0,  # deliberately nothing like what a z normalised prior would fit
-        regression_bin_max=7.0,
-        nhead=2,
-        nhid=32,
-        ninp=16,
-        nlayers=2,
-        num_features=8,
-        base_len=32,
-        max_len=64,
-        y_encoder_dim=8,
-        classification=False,
-    )
-    criterion = infer_criterion(model, make_regression_prior(), "cpu", problem="regression")
-
-    assert criterion.borders[0].item() == pytest.approx(-7.0)
-    assert criterion.borders[-1].item() == pytest.approx(7.0)
-    assert criterion.borders.numel() - 1 == NUM_BUCKETS
-
-
-def test_a_model_without_its_borders_cannot_claim_fixed_bins():
-    """The declaration is a promise to say what the bins are, so an empty promise is an error."""
-    model = make_nanotabpfn_regression()
-    model.output_kinds = {"regression": "fixed_bin_logits"}
-
-    with pytest.raises(ValueError, match="no regression_borders"):
-        infer_criterion(model, make_regression_prior(), "cpu", problem="regression")
 
 
 @pytest.mark.parametrize(
@@ -381,13 +298,9 @@ def test_a_model_without_its_borders_cannot_claim_fixed_bins():
             make_nanotabicl_regression,
             FullSupportBarDistribution(torch.linspace(-3, 3, NUM_BUCKETS + 1)),
         ),
-        (
-            make_nanotabdpt_regression,
-            FullSupportBarDistribution(torch.linspace(-3, 3, NUM_BUCKETS + 1)),
-        ),
         (make_nanotabfm_regression, QuantileLoss(1)),
     ],
-    ids=["quantiles-as-bar", "fixed-bins-as-bar", "scalar-as-quantiles"],
+    ids=["quantiles-as-bar", "scalar-as-quantiles"],
 )
 def test_pretrainTFM_rejects_a_criterion_for_another_output_kind(make_model, criterion):
     with pytest.raises(ValueError, match="emits"):
@@ -408,13 +321,11 @@ def test_pretrainTFM_rejects_a_criterion_for_another_output_kind(make_model, cri
     [
         make_nanotabpfn,
         make_nanotabicl,
-        make_nanotabdpt,
         make_moddednanotabpfn,
         make_nanotabfm,
         make_tabicl,
         make_nanotabpfn_regression,
         make_nanotabicl_regression,
-        make_nanotabdpt_regression,
         make_moddednanotabpfn_regression,
         make_nanotabfm_regression,
         make_tabicl_regression,
@@ -428,29 +339,10 @@ def test_bundled_models_declare_their_output_width(make_model):
 
 @pytest.mark.parametrize(
     "make_model",
-    [make_nanotabpfn, make_nanotabicl, make_nanotabdpt, make_moddednanotabpfn, make_nanotabfm, make_tabicl],
+    [make_nanotabpfn, make_nanotabicl, make_moddednanotabpfn, make_nanotabfm, make_tabicl],
 )
 def test_classification_models_declare_class_logits(make_model):
     assert model_output_kind(make_model(), "classification") == "class_logits"
-
-
-def test_fixed_bin_decoder_matches_the_official_tabdpt_expectation():
-    distribution = FixedBinDistribution(torch.tensor([-2.0, 0.0, 2.0]))
-    logits = torch.tensor([[0.0, 0.0], [20.0, -20.0]])
-
-    predictions = distribution.mean(logits)
-
-    assert predictions[0].item() == pytest.approx(0.0)
-    assert predictions[1].item() == pytest.approx(-1.0)
-
-
-def test_fixed_bin_crps_penalizes_distant_probability_mass_more():
-    distribution = FixedBinDistribution(torch.tensor([-2.0, -1.0, 0.0, 1.0, 2.0]))
-    target = torch.tensor([1.5])
-    near_logits = torch.tensor([[-20.0, -20.0, -20.0, 20.0]])
-    far_logits = torch.tensor([[20.0, -20.0, -20.0, -20.0]])
-
-    assert distribution(near_logits, target).item() < distribution(far_logits, target).item()
 
 
 def test_scalar_regression_keeps_its_contract_when_data_parallel_wraps_the_model():
@@ -503,12 +395,8 @@ def test_a_generic_head_takes_either_regression_criterion(criterion):
 
 
 def test_a_generic_head_still_refuses_a_structural_criterion():
-    """Generic does not mean anything goes: fixed bins and scalars read the channels differently."""
+    """Generic does not mean anything goes: a scalar loss reads the channels differently."""
     model = make_nanotabpfn_regression()
 
-    with pytest.raises(ValueError, match="emits generic_logits"):
-        check_criterion_output_kind(
-            model, FixedBinDistribution(torch.linspace(-3, 3, NUM_BUCKETS + 1)), "generic_logits"
-        )
     with pytest.raises(ValueError, match="emits generic_logits"):
         check_criterion_output_kind(model, nn.MSELoss(), "generic_logits")

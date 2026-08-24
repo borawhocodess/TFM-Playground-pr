@@ -30,7 +30,13 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import typing, math, torch, torch.nn as nn
+import math
+import typing
+
+import torch
+import torch.nn as nn
+
+from tfmplayground.models.base import TabularFoundationModel
 
 
 class NanoTabICLv2(nn.Module):
@@ -192,3 +198,12 @@ class QASSMax(nn.Module):  # query-aware scalable softmax for better context len
         batch_size, num_heads, seq_len, head_dim = q.shape
         logn = q.new_tensor(math.log(max(1, n))).view(1, 1)
         return self.base_mlp(logn).view(1, num_heads, 1, head_dim) * (1 + torch.tanh(self.query_mlp(q))) * q
+
+
+class NanoTabICLModel(NanoTabICLv2, TabularFoundationModel):
+    def forward(self, X_train: torch.Tensor, y_train: torch.Tensor, X_test: torch.Tensor) -> torch.Tensor:
+        x = torch.cat([X_train, X_test], dim=1)
+        y = y_train
+        if isinstance(self.y_embed_in, ClassEmbedding):  # if classification
+            y = y.long()  # turn float prior targets to int
+        return super().forward(x, y)

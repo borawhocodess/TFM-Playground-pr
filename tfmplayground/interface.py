@@ -76,12 +76,10 @@ class TabularClassifier:
         self,
         model: TabularFoundationModel,
         device: None | str | torch.device = None,
-        num_mem_chunks: int = 8,
     ):
         if device is None:
             device = get_default_device()
         self.model = model.to(device)
-        self.model.num_mem_chunks = num_mem_chunks
         self.device = device
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
@@ -123,12 +121,10 @@ class TabularRegressor:
         model: TabularFoundationModel,
         dist: FullSupportBarDistribution | QuantileLoss,
         device: str | torch.device | None = None,
-        num_mem_chunks: int = 8,
     ):
         if device is None:
             device = get_default_device()
         self.model = model.to(device)
-        self.model.num_mem_chunks = num_mem_chunks
         self.device = device
         self.dist = dist
 

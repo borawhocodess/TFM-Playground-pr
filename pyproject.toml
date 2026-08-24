@@ -74,7 +74,11 @@ ignore = [
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-exclude = ["tfmplayground/models/base.py", "tfmplayground/models/nanotabicl.py"]
+exclude = [
+    "tfmplayground/models/base.py",
+    "tfmplayground/models/moddednanotabpfn.py",
+    "tfmplayground/models/nanotabicl.py",
+]
 
 [dependency-groups]
 dev = [

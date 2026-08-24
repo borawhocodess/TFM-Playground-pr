@@ -100,6 +100,7 @@ class TabularClassifier:
         and applies softmax to get the probabilities
         """
         X_test = self.feature_preprocessor.transform(X_test)
+        self.model.eval()
         with torch.no_grad():
             # introduce batch size 1
             X_train = torch.from_numpy(self.X_train).unsqueeze(0).to(torch.float).to(self.device)
@@ -146,7 +147,7 @@ class TabularRegressor:
         Performs in-context learning using X_train and y_train.
         """
         X_test = self.feature_preprocessor.transform(X_test)
-
+        self.model.eval()
         with torch.no_grad():
             X_train = torch.from_numpy(self.X_train).unsqueeze(0).to(torch.float).to(self.device)
             X_test = torch.from_numpy(X_test).unsqueeze(0).to(torch.float).to(self.device)

@@ -79,7 +79,7 @@ class TabularClassifier:
     ):
         if device is None:
             device = get_default_device()
-        self.model = model.to(device)
+        self.model = model.to(device).eval()
         self.device = device
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
@@ -124,7 +124,7 @@ class TabularRegressor:
     ):
         if device is None:
             device = get_default_device()
-        self.model = model.to(device)
+        self.model = model.to(device).eval()
         self.device = device
         self.dist = dist
 

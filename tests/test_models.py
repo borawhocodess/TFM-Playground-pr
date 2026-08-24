@@ -1,6 +1,8 @@
+import numpy as np
 import pytest
 import torch
 
+from tfmplayground.interface import TabularClassifier
 from tfmplayground.models import (
     ModdedNanoTabPFNModel,
     NanoTabICLModel,
@@ -78,7 +80,7 @@ def test_forward_follows_base_contract(make_model):
     assert torch.isfinite(output).all()
 
 
-def test_tabicl_repeats_its_predictions_with_dropout():
+def make_tabicl_with_dropout():
     torch.manual_seed(0)
     model = TabICLModel(
         max_classes=3,
@@ -97,6 +99,11 @@ def test_tabicl_repeats_its_predictions_with_dropout():
     with torch.no_grad():
         for parameter in model.parameters():
             parameter.add_(torch.randn_like(parameter) * 0.02)
+    return model
+
+
+def test_tabicl_repeats_its_predictions_with_dropout():
+    model = make_tabicl_with_dropout()
     model.eval()
 
     X_train = torch.randn(2, 12, 4)
@@ -108,3 +115,27 @@ def test_tabicl_repeats_its_predictions_with_dropout():
         second = model(X_train, y_train, X_test)
 
     torch.testing.assert_close(first, second, rtol=0, atol=0)
+
+
+def test_classifier_repeats_its_predictions_with_dropout():
+    torch.manual_seed(0)
+    model = make_tabicl_with_dropout()
+    classifier = TabularClassifier(model, device="cpu")
+
+    rng = np.random.default_rng(0)
+    classifier.fit(rng.standard_normal((20, 4)), rng.integers(0, 3, size=20))
+    X_test = rng.standard_normal((10, 4))
+
+    np.testing.assert_array_equal(classifier.predict_proba(X_test), classifier.predict_proba(X_test))
+
+
+def test_classifier_predicts_in_eval_mode():
+    model = make_tabicl_with_dropout()
+    classifier = TabularClassifier(model, device="cpu")
+
+    rng = np.random.default_rng(0)
+    classifier.fit(rng.standard_normal((20, 4)), rng.integers(0, 3, size=20))
+    model.train()
+    classifier.predict_proba(rng.standard_normal((10, 4)))
+
+    assert not model.training

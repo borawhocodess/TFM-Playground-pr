@@ -26,6 +26,7 @@ dependencies = [
     "pfns==0.3.0",
     "openml==0.15.1",
     "tabicl[pretrain]",
+    "tabfm[pytorch]==1.0.1",
     "ticl @ git+https://github.com/microsoft/ticl.git@main",
     "tabpfn-v1-prior @ git+https://github.com/automl/tabpfn-v1-prior.git",
     "interpret",
@@ -74,7 +75,11 @@ ignore = [
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-exclude = ["tfmplayground/models/nanotabicl.py"]
+exclude = [
+    "tfmplayground/models/base.py",
+    "tfmplayground/models/moddednanotabpfn.py",
+    "tfmplayground/models/nanotabicl.py",
+]
 
 [dependency-groups]
 dev = [

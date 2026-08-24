@@ -201,7 +201,7 @@ class QASSMax(nn.Module):  # query-aware scalable softmax for better context len
 
 
 class NanoTabICLModel(NanoTabICLv2, TabularFoundationModel):
-    def forward(self, X_train: torch.Tensor, y_train: torch.Tensor, X_test: torch.Tensor) -> torch.Tensor:
+    def forward(self, X_train, y_train, X_test):
         x = torch.cat([X_train, X_test], dim=1)
         y = y_train
         if isinstance(self.y_embed_in, ClassEmbedding):  # if classification

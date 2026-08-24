@@ -6,7 +6,7 @@ from torch.nn.modules.transformer import LayerNorm, Linear, MultiheadAttention
 from tfmplayground.models.base import TabularFoundationModel
 
 
-class NanoTabPFNModel(TabularFoundationModel):
+class NanoTabPFN(nn.Module):
     def __init__(
         self,
         embedding_size: int,
@@ -15,9 +15,6 @@ class NanoTabPFNModel(TabularFoundationModel):
         num_layers: int,
         num_outputs: int,
     ):
-        """
-        todo
-        """
         super().__init__()
         self.embedding_size = embedding_size
         self.num_attention_heads = num_attention_heads
@@ -33,18 +30,8 @@ class NanoTabPFNModel(TabularFoundationModel):
             )
         self.decoder = Decoder(embedding_size, mlp_hidden_size, num_outputs)
 
-    def forward(
-        self,
-        X_train: torch.Tensor,
-        y_train: torch.Tensor,
-        X_test: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        todo
-        """
-        train_test_split_index = y_train.shape[1]
-        x_src = torch.cat([X_train, X_test], dim=1)
-        y_src = y_train
+    def forward(self, src: tuple[torch.Tensor, torch.Tensor], train_test_split_index: int) -> torch.Tensor:
+        x_src, y_src = src
         # we expect the labels to look like (batches, num_train_datapoints, 1),
         # so we add the last dimension if it is missing
         if len(y_src.shape) < len(x_src.shape):
@@ -72,16 +59,10 @@ class NanoTabPFNModel(TabularFoundationModel):
 
 class FeatureEncoder(nn.Module):
     def __init__(self, embedding_size: int):
-        """
-        todo
-        """
         super().__init__()
         self.linear_layer = nn.Linear(1, embedding_size)
 
     def forward(self, x: torch.Tensor, train_test_split_index: int) -> torch.Tensor:
-        """
-        todo
-        """
         x = x.unsqueeze(-1)
         mean = torch.mean(x[:, :train_test_split_index], dim=1, keepdims=True)
         std = torch.std(x[:, :train_test_split_index], dim=1, keepdims=True) + 1e-8  # TODO: maybe change the constant
@@ -92,16 +73,10 @@ class FeatureEncoder(nn.Module):
 
 class TargetEncoder(nn.Module):
     def __init__(self, embedding_size: int):
-        """
-        todo
-        """
         super().__init__()
         self.linear_layer = nn.Linear(1, embedding_size)
 
     def forward(self, y_train: torch.Tensor, num_rows: int) -> torch.Tensor:
-        """
-        todo
-        """
         # nan padding & nan handler instead?
         mean = torch.mean(y_train, axis=1, keepdim=True)
         padding = mean.repeat(1, num_rows - y_train.shape[1], 1)
@@ -111,10 +86,6 @@ class TargetEncoder(nn.Module):
 
 
 class TransformerEncoderLayer(nn.Module):
-    """
-    todo
-    """
-
     def __init__(
         self,
         embedding_size: int,
@@ -141,9 +112,6 @@ class TransformerEncoderLayer(nn.Module):
         self.norm3 = LayerNorm(embedding_size, eps=layer_norm_eps, device=device, dtype=dtype)
 
     def forward(self, src: torch.Tensor, train_test_split_index: int) -> torch.Tensor:
-        """
-        todo
-        """
         batch_size, rows_size, col_size, embedding_size = src.shape
         # attention between features
         src = src.reshape(batch_size * rows_size, col_size, embedding_size)
@@ -182,15 +150,16 @@ class TransformerEncoderLayer(nn.Module):
 
 class Decoder(nn.Module):
     def __init__(self, embedding_size: int, mlp_hidden_size: int, num_outputs: int):
-        """
-        todo
-        """
         super().__init__()
         self.linear1 = nn.Linear(embedding_size, mlp_hidden_size)
         self.linear2 = nn.Linear(mlp_hidden_size, num_outputs)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        todo
-        """
         return self.linear2(F.gelu(self.linear1(x)))
+
+
+class NanoTabPFNModel(NanoTabPFN, TabularFoundationModel):
+    def forward(self, X_train, y_train, X_test):
+        src = torch.cat([X_train, X_test], dim=1), y_train
+        train_test_split_index = y_train.shape[1]
+        return super().forward(src, train_test_split_index)

@@ -76,3 +76,35 @@ def test_forward_follows_base_contract(make_model):
 
     assert output.shape == (2, 5, 3)
     assert torch.isfinite(output).all()
+
+
+def test_tabicl_repeats_its_predictions_with_dropout():
+    torch.manual_seed(0)
+    model = TabICLModel(
+        max_classes=3,
+        embed_dim=32,
+        col_num_blocks=1,
+        row_num_blocks=1,
+        icl_num_blocks=1,
+        col_nhead=2,
+        row_nhead=2,
+        icl_nhead=2,
+        col_num_inds=8,
+        row_num_cls=2,
+        dropout=0.2,
+    )
+    # zero_init leaves every residual branch at zero, where dropout cannot change anything
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.add_(torch.randn_like(parameter) * 0.02)
+    model.eval()
+
+    X_train = torch.randn(2, 12, 4)
+    y_train = torch.randint(0, 3, (2, 12))
+    X_test = torch.randn(2, 5, 4)
+
+    with torch.no_grad():
+        first = model(X_train, y_train, X_test)
+        second = model(X_train, y_train, X_test)
+
+    torch.testing.assert_close(first, second, rtol=0, atol=0)

@@ -5,10 +5,6 @@ from torch import nn
 
 
 class TabularFoundationModel(nn.Module, ABC):
-    """
-    todo
-    """
-
     @abstractmethod
     def forward(
         self,
@@ -16,7 +12,4 @@ class TabularFoundationModel(nn.Module, ABC):
         y_train: torch.Tensor,
         X_test: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        todo
-        """
         ...

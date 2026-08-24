@@ -6,7 +6,7 @@ from torch.nn.modules.transformer import LayerNorm, Linear, MultiheadAttention
 from tfmplayground.models.base import TabularFoundationModel
 
 
-class NanoTabPFNModel(TabularFoundationModel):
+class NanoTabPFN(nn.Module):
     def __init__(
         self,
         embedding_size: int,
@@ -30,15 +30,8 @@ class NanoTabPFNModel(TabularFoundationModel):
             )
         self.decoder = Decoder(embedding_size, mlp_hidden_size, num_outputs)
 
-    def forward(
-        self,
-        X_train: torch.Tensor,
-        y_train: torch.Tensor,
-        X_test: torch.Tensor,
-    ) -> torch.Tensor:
-        train_test_split_index = y_train.shape[1]
-        x_src = torch.cat([X_train, X_test], dim=1)
-        y_src = y_train
+    def forward(self, src: tuple[torch.Tensor, torch.Tensor], train_test_split_index: int) -> torch.Tensor:
+        x_src, y_src = src
         # we expect the labels to look like (batches, num_train_datapoints, 1),
         # so we add the last dimension if it is missing
         if len(y_src.shape) < len(x_src.shape):
@@ -163,3 +156,10 @@ class Decoder(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear2(F.gelu(self.linear1(x)))
+
+
+class NanoTabPFNModel(NanoTabPFN, TabularFoundationModel):
+    def forward(self, X_train, y_train, X_test):
+        src = torch.cat([X_train, X_test], dim=1), y_train
+        train_test_split_index = y_train.shape[1]
+        return super().forward(src, train_test_split_index)

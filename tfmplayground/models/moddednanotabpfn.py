@@ -57,7 +57,7 @@ class ThinkingRows(nn.Module):
 # model
 
 
-class NanoTabPFNModel(nn.Module):
+class ModdedNanoTabPFN(nn.Module):
     def __init__(self, l, a, e, h, o, residual_decay=1.0, thinking_rows=16, feature_group_size=3):
         """
         l : num layers
@@ -226,6 +226,6 @@ class Decoder(nn.Module):
         return self.linear2(F.gelu(self.linear1(x)))
 
 
-class ModdedNanoTabPFNModel(NanoTabPFNModel, TabularFoundationModel):
+class ModdedNanoTabPFNModel(ModdedNanoTabPFN, TabularFoundationModel):
     def forward(self, X_train, y_train, X_test):
         return super().forward(X_train, y_train, X_test)

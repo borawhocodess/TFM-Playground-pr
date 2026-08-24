@@ -227,5 +227,5 @@ class Decoder(nn.Module):
 
 
 class ModdedNanoTabPFNModel(NanoTabPFNModel, TabularFoundationModel):
-    def forward(self, X_train: torch.Tensor, y_train: torch.Tensor, X_test: torch.Tensor) -> torch.Tensor:
+    def forward(self, X_train, y_train, X_test):
         return super().forward(X_train, y_train, X_test)

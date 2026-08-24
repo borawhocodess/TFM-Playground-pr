@@ -15,7 +15,7 @@ class TabFMModel(TabFM, TabularFoundationModel):
             frequencies = torch.randn_like(zeros) * fourier_sigma
             self.cell_embedder.register_parameter(name, nn.Parameter(frequencies))
 
-    def forward(self, X_train: torch.Tensor, y_train: torch.Tensor, X_test: torch.Tensor) -> torch.Tensor:
+    def forward(self, X_train, y_train, X_test):
         batch_size, _ = y_train.shape
         _, num_train_rows, _ = X_train.shape
         _, num_test_rows, _ = X_test.shape

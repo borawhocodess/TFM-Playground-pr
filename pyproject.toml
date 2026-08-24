@@ -64,9 +64,17 @@ ignore = [
     "E741",  # ambiguous variable name
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tfmplayground/models/nanotabicl.py" = [
+    "E501",  # line too long
+    "E701",  # multiple statements on one line
+    "UP045", # non-pep604 annotation optional
+]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+exclude = ["tfmplayground/models/nanotabicl.py"]
 
 [dependency-groups]
 dev = [

@@ -72,6 +72,12 @@ ignore = [
     "E701",  # multiple statements on one line
     "UP045", # non-pep604 annotation optional
 ]
+"tfmplayground/priors/nanotabicl.py" = [
+    "B905",  # zip without an explicit strict
+    "E401",  # multiple imports on one line
+    "E501",  # line too long
+    "I001",  # unsorted imports
+]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -79,6 +85,7 @@ indent-style = "space"
 exclude = [
     "tfmplayground/models/moddednanotabpfn.py",
     "tfmplayground/models/nanotabicl.py",
+    "tfmplayground/priors/nanotabicl.py",
 ]
 
 [dependency-groups]

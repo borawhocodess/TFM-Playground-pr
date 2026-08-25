@@ -1,6 +1,6 @@
 """Data loading utilities for tabular priors."""
 
-from collections.abc import Callable, Iterator
+from abc import ABC, abstractmethod
 
 import h5py
 import numpy as np
@@ -9,42 +9,19 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 
-class PriorDataLoader(DataLoader):
-    """Generic DataLoader for synthetic data generation using a get_batch function.
+class Prior(ABC):
+    @abstractmethod
+    def batch(self, batch_size): ...
 
-    Args:
-        get_batch_function (Callable): A function returning batches of data.
-        num_steps (int): Number of batches per epoch.
-        batch_size (int): Number of functions per batch.
-        num_datapoints_max (int): Max sequence length per function.
-        num_features (int): Number of input features.
-        device (torch.device): Device to move tensors to.
-    """
 
-    def __init__(
-        self,
-        get_batch_function: Callable[..., dict[str, torch.Tensor | int]],
-        num_steps: int,
-        batch_size: int,
-        num_datapoints_max: int,
-        num_features: int,
-        device: torch.device,
-    ):
-        self.get_batch_function = get_batch_function
-        self.num_steps = num_steps
+class PriorDataLoader:
+    def __init__(self, prior, batch_size):
+        self.prior = prior
         self.batch_size = batch_size
-        self.num_datapoints_max = num_datapoints_max
-        self.num_features = num_features
-        self.device = device
 
-    def __iter__(self) -> Iterator[dict[str, torch.Tensor | int]]:
-        return iter(
-            self.get_batch_function(self.batch_size, self.num_datapoints_max, self.num_features)
-            for _ in range(self.num_steps)
-        )
-
-    def __len__(self) -> int:
-        return self.num_steps
+    def __iter__(self):
+        while True:
+            yield self.prior.batch(self.batch_size)
 
 
 class PriorDumpDataLoader(DataLoader):

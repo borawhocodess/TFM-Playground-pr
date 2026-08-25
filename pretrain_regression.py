@@ -5,9 +5,9 @@ from sklearn.metrics import r2_score
 
 from tfmplayground.callbacks import ConsoleLoggerCallback
 from tfmplayground.evaluation import TOY_TASKS_REGRESSION, get_openml_predictions
-from tfmplayground.external_priors import PriorDumpDataLoader
 from tfmplayground.interface import TabularRegressor
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
+from tfmplayground.priors import PriorDumpDataLoader
 from tfmplayground.train import train
 from tfmplayground.utils import get_default_device, load_config, make_global_bucket_edges, set_randomness_seed
 

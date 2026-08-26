@@ -83,6 +83,7 @@ trained_model, loss = train(
     criterion=criterion,
     epochs=training_config.epochs,
     lr=training_config.lr,
+    grad_clip=training_config.grad_clip,
     device=device,
     callbacks=callbacks,
 )

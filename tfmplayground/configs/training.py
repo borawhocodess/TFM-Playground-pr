@@ -7,3 +7,4 @@ class TrainingConfig:
     steps: int = 100
     epochs: int = 10000
     lr: float = 1e-4
+    grad_clip: float = 1.0

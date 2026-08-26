@@ -17,6 +17,7 @@ def train(
     criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss,
     epochs: int,
     lr: float = 1e-4,
+    grad_clip: float = 1.0,
     device: torch.device = None,
     callbacks: list[Callback] = None,
 ):
@@ -29,6 +30,7 @@ def train(
         criterion: (nn.CrossEntropyLoss | FullSupportBarDistribution) our loss criterion
         epochs: (int) the number of epochs we train for,
             the number of steps that constitute an epoch are decided by the prior
+        grad_clip: (float) the maximum gradient norm, above which gradients are scaled down
         device: (torch.device) the device we are using
         callbacks: A list of callback instances to execute at the end of each epoch. These can be used for
             logging, validation, or other custom actions.
@@ -77,7 +79,7 @@ def train(
                 loss.backward()
                 total_loss += loss.cpu().detach().item()
 
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
                 optimizer.step()
                 optimizer.zero_grad()
 

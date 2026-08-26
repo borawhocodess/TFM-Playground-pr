@@ -157,6 +157,21 @@ def test_a_sized_head_trains_every_way(name, way):
     assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in model.parameters())
 
 
+def test_tabfm_trains_the_scalar_way():
+    model = build("tabfm", 1)
+    x_train, y_train, x_test, y_test = (
+        torch.randn(2, 12, 4),
+        torch.randn(2, 12),
+        torch.randn(2, 5, 4),
+        torch.randn(2, 5),
+    )
+    output = model(x_train, y_train, x_test)
+    loss = nn.MSELoss()(output.squeeze(-1), y_test)
+    loss.backward()
+    assert torch.isfinite(loss)
+    assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in model.parameters())
+
+
 @pytest.mark.parametrize("way", ["bucket", "quantile"])
 def test_tabfm_takes_the_scalar_way_only(way):
     model = build("tabfm", 9)

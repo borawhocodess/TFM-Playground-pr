@@ -34,7 +34,6 @@ dependencies = [
     "interpret-core",  # ticl
     "mlflow",  # ticl
     "wandb>=0.20",  # ticl
-    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]
@@ -45,9 +44,6 @@ Issues = "https://github.com/automl/TFM-Playground/issues"
 
 [tool.setuptools]
 packages = { find = { include = ["tfmplayground*"] } }
-
-[tool.setuptools.package-data]
-tfmplayground = ["configs/*.yaml"]
 
 [tool.ruff]
 line-length = 120
@@ -72,6 +68,10 @@ ignore = [
     "E701",  # multiple statements on one line
     "UP045", # non-pep604 annotation optional
 ]
+"tfmplayground/priors/nanotabicl.py" = [
+    "B905",  # zip without an explicit strict
+    "E501",  # line too long
+]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -79,6 +79,7 @@ indent-style = "space"
 exclude = [
     "tfmplayground/models/moddednanotabpfn.py",
     "tfmplayground/models/nanotabicl.py",
+    "tfmplayground/priors/nanotabicl.py",
 ]
 
 [dependency-groups]

@@ -1,13 +1,20 @@
-"""Interfaces to external prior libraries (TabICL, TICL, TabPFN v1)."""
-
-from .base import PriorDataLoader, PriorDumpDataLoader
-from .tabicl import TabICLPriorDataLoader
+from .base import DictPrior, Prior, PriorDataLoader
+from .dump import DumpPrior, PriorDumpDataLoader
+from .moddednanoscm import ModdedNanoSCMPrior
+from .nanotabicl import NanoTabICLPrior
+from .tabicl import TabICLPrior, TabICLPriorDataLoader
 from .tabpfn import TabPFNPriorDataLoader, build_tabpfn_prior
 from .ticl import TICLPriorDataLoader, build_ticl_prior
 
 __all__ = [
+    "Prior",
+    "DictPrior",
     "PriorDataLoader",
+    "DumpPrior",
     "PriorDumpDataLoader",
+    "ModdedNanoSCMPrior",
+    "NanoTabICLPrior",
+    "TabICLPrior",
     "TabICLPriorDataLoader",
     "TICLPriorDataLoader",
     "TabPFNPriorDataLoader",

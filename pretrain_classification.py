@@ -1,38 +1,33 @@
-from types import SimpleNamespace
+from dataclasses import asdict
 
 from sklearn.metrics import roc_auc_score
 from torch import nn
 
 from tfmplayground.callbacks import ConsoleLoggerCallback, WandbLoggerCallback
+from tfmplayground.configs.models import NanoTabPFNClassifierConfig
+from tfmplayground.configs.priors import ClassificationPriorDumpConfig
+from tfmplayground.configs.training import TrainingConfig
 from tfmplayground.evaluation import TABARENA_TASKS, TOY_TASKS_CLASSIFICATION, get_openml_predictions
 from tfmplayground.interface import TabularClassifier
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
-from tfmplayground.priors import PriorDumpDataLoader
+from tfmplayground.priors import DumpPrior
 from tfmplayground.train import train
-from tfmplayground.utils import get_default_device, load_config, set_randomness_seed
+from tfmplayground.utils import get_default_device, set_randomness_seed
 
-args = SimpleNamespace(**load_config("nanotabpfn_classifier"))
+dump_config = ClassificationPriorDumpConfig()
+training_config = TrainingConfig()
 
-set_randomness_seed(2402)
+set_randomness_seed(training_config.seed)
 
 device = get_default_device()
 
-prior = PriorDumpDataLoader(
-    filename=args.priordump,
-    num_steps=args.steps,
-    batch_size=args.batchsize,
-    device=device,
-)
+prior = DumpPrior(filename=dump_config.filename, device=device)
 
 criterion = nn.CrossEntropyLoss()
 
-model = NanoTabPFNModel(
-    num_attention_heads=args.heads,
-    embedding_size=args.embeddingsize,
-    mlp_hidden_size=args.hiddensize,
-    num_layers=args.layers,
-    num_outputs=prior.max_num_classes,
-)
+model_config = NanoTabPFNClassifierConfig()
+
+model = NanoTabPFNModel(**asdict(model_config))
 
 
 class ToyEvaluationLoggerCallback(ConsoleLoggerCallback):
@@ -81,10 +76,11 @@ trained_model, loss = train(
     model=model,
     prior=prior,
     criterion=criterion,
-    epochs=args.epochs,
-    accumulate_gradients=args.accumulate,
-    lr=args.lr,
+    epochs=training_config.epochs,
+    batch_size=training_config.batch_size,
+    steps_per_epoch=training_config.steps,
+    lr=training_config.lr,
+    grad_clip=training_config.grad_clip,
     device=device,
     callbacks=callbacks,
-    multi_gpu=args.multigpu,
 )

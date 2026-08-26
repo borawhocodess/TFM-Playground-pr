@@ -4,6 +4,10 @@ import torch
 from tabicl.prior import PriorDataset as TabICLPriorDataset
 from torch.utils.data import DataLoader
 
+from tfmplayground.configs.priors import TabICLPriorConfig
+from tfmplayground.priors.base import Prior
+from tfmplayground.utils import get_default_device
+
 
 class TabICLPriorDataLoader(DataLoader):
     """DataLoader sampling synthetic prior data on-the-fly from TabICL's PriorDataset.
@@ -59,13 +63,9 @@ class TabICLPriorDataLoader(DataLoader):
 
     def tabicl_to_ours(self, d):
         x, y, active_features, seqlen, train_size = d
-        active_features = active_features[
-            0
-        ].item()  # should be all the same since we use batch_size_per_gp=batch_size (not true in practice!)
-        x = x[:, :, :active_features]
-        train_test_split_index = train_size[
-            0
-        ].item()  # should be all the same since we use batch_size_per_gp=batch_size
+        max_active_features = int(active_features.max().item())
+        x = x[:, :, :max_active_features]
+        train_test_split_index = train_size[0].item()
         return dict(
             x=x.to(self.device),
             y=y.to(self.device),
@@ -78,3 +78,39 @@ class TabICLPriorDataLoader(DataLoader):
 
     def __len__(self):
         return self.num_steps
+
+
+class TabICLPrior(Prior):
+    def __init__(self, config=None, device=None):
+        self.config = config if config is not None else TabICLPriorConfig()
+        self.device = device if device is not None else get_default_device()
+        if self.config.num_datapoints_min >= self.config.num_datapoints_max:
+            raise ValueError("num_datapoints_min must be smaller than num_datapoints_max")
+        self.built_batch_size = None
+
+    def build_sampler(self, batch_size):
+        c = self.config
+        self.sampler = TabICLPriorDataset(
+            regression=c.problem == "regression",
+            batch_size=batch_size,
+            batch_size_per_gp=batch_size,
+            min_features=c.num_features_min,
+            max_features=c.num_features_max,
+            max_classes=c.max_num_classes,
+            min_seq_len=c.num_datapoints_min,
+            max_seq_len=c.num_datapoints_max,
+            prior_type=c.prior_type,
+            n_jobs=c.n_jobs,
+        )
+        self.built_batch_size = batch_size
+
+    def sample_batch(self):
+        x, y, active_features, _, train_size = next(self.sampler)
+        x = x[:, :, : int(active_features.max().item())]
+        return x.to(self.device), y.to(self.device), train_size[0].item()
+
+    def batch(self, batch_size):
+        if batch_size != self.built_batch_size:
+            self.build_sampler(batch_size)
+        x, y, sep = self.sample_batch()
+        return x[:, :sep], y[:, :sep], x[:, sep:], y[:, sep:]

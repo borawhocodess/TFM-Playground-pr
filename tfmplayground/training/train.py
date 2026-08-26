@@ -5,9 +5,9 @@ import torch
 from pfns.bar_distribution import FullSupportBarDistribution
 from torch import nn
 
-from tfmplayground.callbacks import Callback
 from tfmplayground.models import TabularFoundationModel
 from tfmplayground.priors import Prior, PriorDataLoader
+from tfmplayground.training.callbacks import Callback
 from tfmplayground.utils import QuantileLoss, get_default_device
 
 

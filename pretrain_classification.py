@@ -1,15 +1,15 @@
 from sklearn.metrics import roc_auc_score
 from torch import nn
 
-from tfmplayground.callbacks import ConsoleLoggerCallback, WandbLoggerCallback
 from tfmplayground.configs.models import TabICLClassifierConfig
 from tfmplayground.configs.priors import TabICLClassificationPriorConfig
 from tfmplayground.configs.training import TrainingConfig
-from tfmplayground.evaluation import TABARENA_TASKS, TOY_TASKS_CLASSIFICATION, get_openml_predictions
+from tfmplayground.evaluation.evaluation import TABARENA_TASKS, TOY_TASKS_CLASSIFICATION, get_openml_predictions
 from tfmplayground.interface import TabularClassifier
 from tfmplayground.models.tabicl import TabICLModel
 from tfmplayground.priors import TabICLPrior
-from tfmplayground.train import train
+from tfmplayground.training.callbacks import ConsoleLoggerCallback, WandbLoggerCallback
+from tfmplayground.training.train import train
 from tfmplayground.utils import get_default_device, set_randomness_seed
 
 prior_config = TabICLClassificationPriorConfig(num_datapoints_max=400, num_features_max=20)

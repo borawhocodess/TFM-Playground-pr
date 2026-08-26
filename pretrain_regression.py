@@ -1,14 +1,14 @@
 from sklearn.metrics import r2_score
 
-from tfmplayground.callbacks import ConsoleLoggerCallback
 from tfmplayground.configs.models import TabICLRegressorConfig
 from tfmplayground.configs.priors import TabICLRegressionPriorConfig
 from tfmplayground.configs.training import TrainingConfig
-from tfmplayground.evaluation import TOY_TASKS_REGRESSION, get_openml_predictions
+from tfmplayground.evaluation.evaluation import TOY_TASKS_REGRESSION, get_openml_predictions
 from tfmplayground.interface import TabularRegressor
 from tfmplayground.models.tabicl import TabICLModel
 from tfmplayground.priors import TabICLPrior
-from tfmplayground.train import train
+from tfmplayground.training.callbacks import ConsoleLoggerCallback
+from tfmplayground.training.train import train
 from tfmplayground.utils import QuantileLoss, get_default_device, set_randomness_seed
 
 prior_config = TabICLRegressionPriorConfig(num_datapoints_max=400, num_features_max=20)

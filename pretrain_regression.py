@@ -1,17 +1,18 @@
+from pfns.bar_distribution import FullSupportBarDistribution
 from sklearn.metrics import r2_score
 
-from tfmplayground.configs.models import TabICLRegressorConfig
+from tfmplayground.configs.models import NanoTabPFNRegressorConfig
 from tfmplayground.configs.priors import TabICLRegressionPriorConfig
 from tfmplayground.configs.training import TrainingConfig
 from tfmplayground.evaluation.evaluation import TOY_TASKS_REGRESSION, get_openml_predictions
 from tfmplayground.interface import TabularRegressor
-from tfmplayground.models.tabicl import TabICLModel
+from tfmplayground.models.nanotabpfn import NanoTabPFNModel
 from tfmplayground.priors import TabICLPrior
 from tfmplayground.training.callbacks import ConsoleLoggerCallback
 from tfmplayground.training.train import train
-from tfmplayground.utils import QuantileLoss, get_default_device, set_randomness_seed
+from tfmplayground.utils import get_default_device, make_bucket_borders, set_randomness_seed
 
-prior_config = TabICLRegressionPriorConfig(num_datapoints_max=400, num_features_max=20)
+prior_config = TabICLRegressionPriorConfig(num_datapoints_max=256, num_features_max=4)
 training_config = TrainingConfig()
 
 set_randomness_seed(training_config.seed)
@@ -20,11 +21,19 @@ device = get_default_device()
 
 prior = TabICLPrior(config=prior_config, device=device)
 
-model_config = TabICLRegressorConfig()
+model_config = NanoTabPFNRegressorConfig()
 
-model = TabICLModel(config=model_config)
+model = NanoTabPFNModel(config=model_config)
 
-criterion = QuantileLoss(n_quantiles=model_config.num_quantiles)
+model.borders = make_bucket_borders(
+    prior=prior,
+    num_buckets=model_config.num_outputs,
+    batch_size=training_config.batch_size,
+    min_targets=training_config.bucket_borders_min_targets,
+    outlier_threshold=training_config.bucket_borders_outlier_threshold,
+).to(device)
+
+criterion = FullSupportBarDistribution(model.borders).to(device)
 
 
 class EvaluationLoggerCallback(ConsoleLoggerCallback):

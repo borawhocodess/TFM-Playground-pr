@@ -221,6 +221,7 @@ class ModdedNanoTabPFNModel(ModdedNanoTabPFN, TabularFoundationModel):
             thinking_rows=config.thinking_rows,
             feature_group_size=config.feature_group_size,
         )
+        self.register_buffer("borders", torch.zeros(config.o + 1))
 
     def forward(self, X_train, y_train, X_test):
         return super().forward(X_train, y_train, X_test)

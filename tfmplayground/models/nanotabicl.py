@@ -216,6 +216,7 @@ class NanoTabICLModel(NanoTabICLv2, TabularFoundationModel):
             n_cls_cols=config.n_cls_cols,
             n_cls_rows=config.n_cls_rows,
         )
+        self.register_buffer("borders", torch.zeros(config.out_dim + 1))
 
     def forward(self, X_train, y_train, X_test):
         x = torch.cat([X_train, X_test], dim=1)

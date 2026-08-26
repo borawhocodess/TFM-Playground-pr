@@ -369,14 +369,15 @@ class NanoTabICLPrior(Prior):
     def __init__(self, config, device=None):
         self.config = config
         self.device = device if device is not None else get_default_device()
-        if self.config.num_test_datapoints >= self.config.num_datapoints_max:
-            raise ValueError("num_test_datapoints must be smaller than num_datapoints_max")
+        if not 0 < self.config.train_fraction_min <= self.config.train_fraction_max < 1:
+            raise ValueError("the train fractions must obey 0 < min <= max < 1")
 
     def hyperparameters(self):
         c = self.config
         self.num_features = c.num_features
         self.num_datapoints_max = c.num_datapoints_max
-        self.sep = c.num_datapoints_max - c.num_test_datapoints
+        fraction = np.random.uniform(c.train_fraction_min, c.train_fraction_max)
+        self.sep = int(c.num_datapoints_max * fraction)
         if c.problem == "regression":
             self.num_classes = 0
         else:

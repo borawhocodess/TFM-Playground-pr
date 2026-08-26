@@ -9,3 +9,5 @@ class TrainingConfig:
     epochs: int = 10000
     lr: float = 1e-4
     grad_clip: float = 1.0
+    bucket_borders_min_targets: int = 1_000_000
+    bucket_borders_outlier_threshold: float = 10.0

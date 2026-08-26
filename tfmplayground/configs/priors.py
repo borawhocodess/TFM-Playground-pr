@@ -21,7 +21,8 @@ class ModdedNanoSCMPriorConfig:
 class NanoTabICLPriorConfig:
     num_datapoints_max: int = 1000
     num_features: int = 20
-    num_test_datapoints: int = 128
+    train_fraction_min: float = 0.1
+    train_fraction_max: float = 0.9
 
 
 @dataclass

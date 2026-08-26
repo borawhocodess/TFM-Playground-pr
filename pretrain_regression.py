@@ -12,7 +12,7 @@ from tfmplayground.training.callbacks import ConsoleLoggerCallback
 from tfmplayground.training.train import train
 from tfmplayground.utils import get_default_device, make_bucket_borders, set_randomness_seed
 
-prior_config = TabICLRegressionPriorConfig(num_datapoints_min=20, num_datapoints_max=50, num_features_max=3)
+prior_config = TabICLRegressionPriorConfig(num_datapoints_max=256, num_features_max=4)
 training_config = TrainingConfig()
 
 set_randomness_seed(training_config.seed)
@@ -29,7 +29,8 @@ model.borders = make_bucket_borders(
     prior=prior,
     num_buckets=model_config.num_outputs,
     batch_size=training_config.batch_size,
-    min_targets=training_config.min_border_targets,
+    min_targets=training_config.bucket_borders_min_targets,
+    outlier_threshold=training_config.bucket_borders_outlier_threshold,
 ).to(device)
 
 criterion = FullSupportBarDistribution(model.borders).to(device)

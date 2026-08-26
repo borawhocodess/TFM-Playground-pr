@@ -22,7 +22,7 @@ def get_default_device():
     return device
 
 
-def make_bucket_borders(prior, num_buckets, batch_size, min_targets):
+def make_bucket_borders(prior, num_buckets, batch_size, min_targets, outlier_threshold):
     normalized_targets = []
     collected = 0
     while collected < min_targets:
@@ -42,6 +42,13 @@ def make_bucket_borders(prior, num_buckets, batch_size, min_targets):
     ys = ys[torch.isfinite(ys)]
     if ys.numel() < num_buckets:
         raise ValueError(f"{ys.numel()} targets cannot make {num_buckets} buckets")
+
+    mean = ys.mean()
+    std = ys.std()
+    inside = ys[(ys - mean).abs() <= outlier_threshold * std]
+    robust_mean = inside.mean()
+    cut_off = outlier_threshold * inside.std()
+    ys = ys.clamp(robust_mean - cut_off, robust_mean + cut_off)
 
     n = (ys.numel() // num_buckets) * num_buckets
     ys = ys[:n]

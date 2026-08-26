@@ -99,7 +99,9 @@ def test_an_unfitted_model_says_so(name):
 @pytest.mark.parametrize("name", SIZED)
 def test_fitting_gives_increasing_edges(name):
     model = build(name, 7)
-    model.borders = make_bucket_borders(NormalPrior(), model.borders.numel() - 1, batch_size=4, min_targets=2000)
+    model.borders = make_bucket_borders(
+        NormalPrior(), model.borders.numel() - 1, batch_size=4, min_targets=2000, outlier_threshold=6.0
+    )
     assert model.borders.numel() == 8
     assert (model.borders.diff() > 0).all()
 
@@ -107,7 +109,9 @@ def test_fitting_gives_increasing_edges(name):
 @pytest.mark.parametrize("name", SIZED)
 def test_the_edges_survive_a_save_and_a_load(name):
     trained = build(name, 7)
-    trained.borders = make_bucket_borders(NormalPrior(), trained.borders.numel() - 1, batch_size=4, min_targets=2000)
+    trained.borders = make_bucket_borders(
+        NormalPrior(), trained.borders.numel() - 1, batch_size=4, min_targets=2000, outlier_threshold=6.0
+    )
     loaded = build(name, 7)
     loaded.load_state_dict(trained.state_dict())
     assert torch.equal(loaded.borders, trained.borders)
@@ -130,6 +134,7 @@ def test_the_edges_are_fitted_on_the_values_the_loop_sees(name):
         model.borders.numel() - 1,
         batch_size=4,
         min_targets=2000,
+        outlier_threshold=6.0,
     )
     assert borders.abs().max() < 10
 
@@ -192,7 +197,7 @@ def test_make_global_bucket_edges_still_reads_a_dump(tmp_path):
 
 def test_too_few_targets_are_refused():
     with pytest.raises(ValueError, match="cannot make"):
-        make_bucket_borders(NormalPrior(), num_buckets=100_000, batch_size=1, min_targets=2000)
+        make_bucket_borders(NormalPrior(), num_buckets=100_000, batch_size=1, min_targets=2000, outlier_threshold=6.0)
 
 
 def test_repeated_targets_are_refused():
@@ -204,7 +209,7 @@ def test_repeated_targets_are_refused():
             return x[:, :12], y[:, :12], x[:, 12:], y[:, 12:]
 
     with pytest.raises(ValueError, match="no width"):
-        make_bucket_borders(RepeatingPrior(), num_buckets=9, batch_size=4, min_targets=2000)
+        make_bucket_borders(RepeatingPrior(), num_buckets=9, batch_size=4, min_targets=2000, outlier_threshold=6.0)
 
 
 def test_exactly_one_target_for_each_bucket_is_allowed():
@@ -214,7 +219,7 @@ def test_exactly_one_target_for_each_bucket_is_allowed():
             y = torch.randn(batch_size, 10)
             return x[:, :5], y[:, :5], x[:, 5:], y[:, 5:]
 
-    borders = make_bucket_borders(OneEachPrior(), num_buckets=10, batch_size=1, min_targets=10)
+    borders = make_bucket_borders(OneEachPrior(), num_buckets=10, batch_size=1, min_targets=10, outlier_threshold=6.0)
     assert borders.numel() == 11
     assert (borders.diff() > 0).all()
 
@@ -228,7 +233,9 @@ def test_a_nonfinite_target_drops_only_its_own_table():
             y[0, 1] = float("inf")
             return x[:, :12], y[:, :12], x[:, 12:], y[:, 12:]
 
-    borders = make_bucket_borders(OneBadTablePrior(), num_buckets=9, batch_size=4, min_targets=400)
+    borders = make_bucket_borders(
+        OneBadTablePrior(), num_buckets=9, batch_size=4, min_targets=400, outlier_threshold=6.0
+    )
     assert torch.isfinite(borders).all()
     assert (borders.diff() > 0).all()
 
@@ -243,4 +250,38 @@ def test_a_batch_of_one_bad_table_leaves_nothing():
             return x[:, :12], y[:, :12], x[:, 12:], y[:, 12:]
 
     with pytest.raises(ValueError, match="0 targets cannot make"):
-        make_bucket_borders(AllBadPrior(), num_buckets=9, batch_size=1, min_targets=200)
+        make_bucket_borders(AllBadPrior(), num_buckets=9, batch_size=1, min_targets=200, outlier_threshold=6.0)
+
+
+def test_a_rare_extreme_table_does_not_widen_the_borders():
+    class RareExtremePrior(Prior):
+        def __init__(self):
+            self.draws = 0
+
+        def batch(self, batch_size):
+            self.draws += 1
+            x = torch.randn(batch_size, 40, 3)
+            y = torch.randn(batch_size, 40)
+            if self.draws % 50 == 0:
+                y = y * 500.0
+            return x[:, :24], y[:, :24], x[:, 24:], y[:, 24:]
+
+    borders = make_bucket_borders(
+        RareExtremePrior(), num_buckets=20, batch_size=1, min_targets=8000, outlier_threshold=6.0
+    )
+    assert borders.abs().max() < 10
+
+
+def test_a_wider_threshold_gives_wider_borders():
+    class NoisyPrior(Prior):
+        def __init__(self, seed):
+            self.generator = torch.Generator().manual_seed(seed)
+
+        def batch(self, batch_size):
+            x = torch.randn(batch_size, 40, 3, generator=self.generator)
+            y = torch.randn(batch_size, 40, generator=self.generator)
+            return x[:, :24], y[:, :24], x[:, 24:], y[:, 24:]
+
+    narrow = make_bucket_borders(NoisyPrior(0), 20, 1, 8000, outlier_threshold=3.0)
+    wide = make_bucket_borders(NoisyPrior(0), 20, 1, 8000, outlier_threshold=6.0)
+    assert wide.abs().max() > narrow.abs().max()

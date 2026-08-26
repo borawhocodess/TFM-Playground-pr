@@ -59,3 +59,31 @@ def test_starting_index_picks_the_first_table(dump):
     x_train, _, _, _ = prior.batch(4)
 
     assert x_train.shape[1] == 6
+
+
+def test_nanotabicl_varies_its_split_the_way_tabicl_does():
+    from tfmplayground.configs.priors import NanoTabICLClassificationPriorConfig
+    from tfmplayground.priors import NanoTabICLPrior
+
+    prior = NanoTabICLPrior(config=NanoTabICLClassificationPriorConfig(num_datapoints_max=200), device="cpu")
+    fractions = set()
+    for _ in range(12):
+        _, y_train, _, y_test = prior.batch(1)
+        rows = y_train.shape[1] + y_test.shape[1]
+        assert rows == 200
+        fractions.add(y_train.shape[1] / rows)
+    assert len(fractions) > 1
+    assert all(0.1 <= fraction <= 0.9 for fraction in fractions)
+
+
+def test_the_train_fractions_are_checked():
+    from tfmplayground.configs.priors import NanoTabICLClassificationPriorConfig
+    from tfmplayground.priors import NanoTabICLPrior
+
+    for bad in (
+        {"train_fraction_min": 0.0},
+        {"train_fraction_max": 1.0},
+        {"train_fraction_min": 0.8, "train_fraction_max": 0.2},
+    ):
+        with pytest.raises(ValueError, match="train fractions"):
+            NanoTabICLPrior(config=NanoTabICLClassificationPriorConfig(**bad), device="cpu")

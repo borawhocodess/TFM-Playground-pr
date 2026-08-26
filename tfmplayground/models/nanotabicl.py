@@ -1,4 +1,4 @@
-# Vendored from https://github.com/soda-inria/nanotabicl, adapted to TabularFoundationModel.
+# Vendored from https://github.com/soda-inria/nanotabicl (model.py) at 4a7f9c7
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # BSD 3-Clause License

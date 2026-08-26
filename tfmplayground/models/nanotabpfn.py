@@ -159,6 +159,15 @@ class Decoder(nn.Module):
 
 
 class NanoTabPFNModel(NanoTabPFN, TabularFoundationModel):
+    def __init__(self, config):
+        super().__init__(
+            embedding_size=config.embedding_size,
+            num_attention_heads=config.num_attention_heads,
+            mlp_hidden_size=config.mlp_hidden_size,
+            num_layers=config.num_layers,
+            num_outputs=config.num_outputs,
+        )
+
     def forward(self, X_train, y_train, X_test):
         src = torch.cat([X_train, X_test], dim=1), y_train
         train_test_split_index = y_train.shape[1]

@@ -210,5 +210,17 @@ class Decoder(nn.Module):
 
 
 class ModdedNanoTabPFNModel(ModdedNanoTabPFN, TabularFoundationModel):
+    def __init__(self, config):
+        super().__init__(
+            l=config.l,
+            a=config.a,
+            e=config.e,
+            h=config.h,
+            o=config.o,
+            residual_decay=config.residual_decay,
+            thinking_rows=config.thinking_rows,
+            feature_group_size=config.feature_group_size,
+        )
+
     def forward(self, X_train, y_train, X_test):
         return super().forward(X_train, y_train, X_test)

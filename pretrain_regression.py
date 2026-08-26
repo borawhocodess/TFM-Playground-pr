@@ -1,5 +1,3 @@
-from dataclasses import asdict
-
 from sklearn.metrics import r2_score
 
 from tfmplayground.callbacks import ConsoleLoggerCallback
@@ -24,7 +22,7 @@ prior = TabICLPrior(config=prior_config, device=device)
 
 model_config = TabICLRegressorConfig()
 
-model = TabICLModel(**asdict(model_config))
+model = TabICLModel(config=model_config)
 
 criterion = QuantileLoss(n_quantiles=model_config.num_quantiles)
 

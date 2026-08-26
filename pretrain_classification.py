@@ -1,5 +1,3 @@
-from dataclasses import asdict
-
 from sklearn.metrics import roc_auc_score
 from torch import nn
 
@@ -27,7 +25,7 @@ criterion = nn.CrossEntropyLoss()
 
 model_config = TabICLClassifierConfig()
 
-model = TabICLModel(**asdict(model_config))
+model = TabICLModel(config=model_config)
 
 
 class ToyEvaluationLoggerCallback(ConsoleLoggerCallback):

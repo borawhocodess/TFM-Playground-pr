@@ -1,5 +1,7 @@
 import inspect
-from dataclasses import asdict, fields
+import re
+from dataclasses import fields
+from types import SimpleNamespace
 
 import pytest
 
@@ -43,18 +45,34 @@ def constructor_parameters(model_class):
         if init is None:
             continue
         parameters = inspect.signature(init).parameters
-        names |= {name for name in parameters if name not in ("self", "args", "kwargs")}
+        names |= {name for name in parameters if name not in ("self", "args", "kwargs", "config")}
     return names
 
 
 @pytest.mark.parametrize(("model_class", "config_class"), PAIRS, ids=lambda p: p.__name__)
-def test_config_names_match_the_constructor(model_class, config_class):
+def test_config_covers_every_constructor_parameter(model_class, config_class):
     ours = {field.name for field in fields(config_class)}
     theirs = constructor_parameters(model_class)
-    assert ours == theirs
+    assert theirs <= ours
 
 
 @pytest.mark.parametrize(("model_class", "config_class"), PAIRS, ids=lambda p: p.__name__)
 def test_config_builds_its_model(model_class, config_class):
-    model = model_class(**asdict(config_class()))
+    model = model_class(config=config_class())
+    assert any(parameter.requires_grad for parameter in model.parameters())
+
+
+@pytest.mark.parametrize(("model_class", "config_class"), PAIRS, ids=lambda p: p.__name__)
+def test_every_config_field_reaches_the_model(model_class, config_class):
+    source = inspect.getsource(model_class.__init__)
+    read = set(re.findall(r"config\.(\w+)", source))
+    ours = {field.name for field in fields(config_class)}
+    assert ours == read
+
+
+@pytest.mark.parametrize(("model_class", "config_class"), PAIRS, ids=lambda p: p.__name__)
+def test_config_may_be_any_object_with_the_fields(model_class, config_class):
+    # the adapters read attributes, so a config need not be one of our dataclasses
+    plain = SimpleNamespace(**{f.name: getattr(config_class(), f.name) for f in fields(config_class)})
+    model = model_class(config=plain)
     assert any(parameter.requires_grad for parameter in model.parameters())

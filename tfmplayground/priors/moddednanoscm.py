@@ -1,8 +1,28 @@
+# Vendored from https://github.com/borawhocodess/modded-nanotabpfn (train_prior.py) at 6671842
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright 2026 Salih Bora Ozturk
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+
+from tfmplayground.priors.base import Prior
+from tfmplayground.utils import get_default_device
 
 
 @dataclass
@@ -90,3 +110,10 @@ class ModdedNanoPrior:
         y = torch.stack([d[1] for d in datasets])
         sep = self.sep
         return x[:, :sep], y[:, :sep], x[:, sep:], y[:, sep:]
+
+
+class ModdedNanoSCMPrior(ModdedNanoPrior, Prior):
+    def __init__(self, config=None, device=None):
+        config = config if config is not None else PriorConfig()
+        device = device if device is not None else get_default_device()
+        super().__init__(config, device)

@@ -74,9 +74,7 @@ ignore = [
 ]
 "tfmplayground/priors/nanotabicl.py" = [
     "B905",  # zip without an explicit strict
-    "E401",  # multiple imports on one line
     "E501",  # line too long
-    "I001",  # unsorted imports
 ]
 
 [tool.ruff.format]

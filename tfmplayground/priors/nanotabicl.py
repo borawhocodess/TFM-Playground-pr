@@ -1,7 +1,47 @@
-import numpy as np, torch, torch.nn.functional as F
+# Vendored from https://github.com/soda-inria/nanotabicl (prior.py) at 4a7f9c7
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# BSD 3-Clause License
+#
+# Copyright (c) 2025, Soda team @ Inria
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+from dataclasses import dataclass
 from typing import Any
+
+import numpy as np
+import torch
+import torch.nn.functional as F
 from numpy.random import randint
 from sklearn.ensemble import ExtraTreesRegressor
+
+from tfmplayground.priors.base import Prior
+from tfmplayground.utils import get_default_device
 
 # ----- Dataset sampling -----
 
@@ -324,3 +364,50 @@ def rand_weights(n_batch: int, n: int) -> torch.Tensor:
     logits = log_weights + std_scale[:, None] * torch.randn(n_batch, n)
     logits = torch.stack([logits[i, torch.randperm(n)] for i in range(n_batch)], dim=0)  # no batch randperm available
     return np.sqrt(n) * row_normalize(torch.softmax(logits, dim=-1))
+
+
+@dataclass
+class NanoTabICLPriorConfig:
+    num_datapoints_max: int = 1000
+    num_features: int = 20
+    num_test_datapoints: int = 128
+    problem: str = "classification"
+    max_num_classes: int = 10
+
+
+class NanoTabICLPrior(Prior):
+    def __init__(self, config=None, device=None):
+        self.config = config if config is not None else NanoTabICLPriorConfig()
+        self.device = device if device is not None else get_default_device()
+        if self.config.num_test_datapoints >= self.config.num_datapoints_max:
+            raise ValueError("num_test_datapoints must be smaller than num_datapoints_max")
+
+    def hyperparameters(self):
+        c = self.config
+        self.num_features = c.num_features
+        self.num_datapoints_max = c.num_datapoints_max
+        self.sep = c.num_datapoints_max - c.num_test_datapoints
+        if c.problem == "regression":
+            self.num_classes = 0
+        else:
+            binary = c.max_num_classes == 2 or np.random.rand() < 0.5
+            self.num_classes = 2 if binary else int(np.random.randint(3, c.max_num_classes + 1))
+
+    def target(self, columns):
+        x = torch.cat([columns[f"x_{i}"] for i in range(self.num_features)], dim=-1)
+        y = columns["y_0"].squeeze(-1)
+        return x.float(), y.float()
+
+    def dataset(self):
+        cat_sizes = rand_cat_sizes(self.num_features)
+        columns = rand_dataset_filtered(cat_sizes, [self.num_classes], self.num_datapoints_max)
+        x, y = self.target(columns)
+        return x, y
+
+    def batch(self, batch_size):
+        self.hyperparameters()
+        datasets = [self.dataset() for _ in range(batch_size)]
+        x = torch.stack([d[0] for d in datasets]).to(self.device)
+        y = torch.stack([d[1] for d in datasets]).to(self.device)
+        sep = self.sep
+        return x[:, :sep], y[:, :sep], x[:, sep:], y[:, sep:]

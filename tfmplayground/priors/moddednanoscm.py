@@ -4,7 +4,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from tfmplayground.configs.priors import ModdedNanoSCMPriorConfig
 from tfmplayground.priors.base import Prior
 from tfmplayground.utils import get_default_device
 
@@ -81,7 +80,6 @@ class ModdedNanoPrior:
 
 
 class ModdedNanoSCMPrior(ModdedNanoPrior, Prior):
-    def __init__(self, config=None, device=None):
-        config = config if config is not None else ModdedNanoSCMPriorConfig()
+    def __init__(self, config, device=None):
         device = device if device is not None else get_default_device()
         super().__init__(config, device)

@@ -4,30 +4,30 @@ from sklearn.metrics import roc_auc_score
 from torch import nn
 
 from tfmplayground.callbacks import ConsoleLoggerCallback, WandbLoggerCallback
-from tfmplayground.configs.models import NanoTabPFNClassifierConfig
-from tfmplayground.configs.priors import ClassificationPriorDumpConfig
+from tfmplayground.configs.models import TabICLClassifierConfig
+from tfmplayground.configs.priors import TabICLClassificationPriorConfig
 from tfmplayground.configs.training import TrainingConfig
 from tfmplayground.evaluation import TABARENA_TASKS, TOY_TASKS_CLASSIFICATION, get_openml_predictions
 from tfmplayground.interface import TabularClassifier
-from tfmplayground.models.nanotabpfn import NanoTabPFNModel
-from tfmplayground.priors import DumpPrior
+from tfmplayground.models.tabicl import TabICLModel
+from tfmplayground.priors import TabICLPrior
 from tfmplayground.train import train
 from tfmplayground.utils import get_default_device, set_randomness_seed
 
-dump_config = ClassificationPriorDumpConfig()
+prior_config = TabICLClassificationPriorConfig(num_datapoints_max=400, num_features_max=20)
 training_config = TrainingConfig()
 
 set_randomness_seed(training_config.seed)
 
 device = get_default_device()
 
-prior = DumpPrior(filename=dump_config.filename, device=device)
+prior = TabICLPrior(config=prior_config, device=device)
 
 criterion = nn.CrossEntropyLoss()
 
-model_config = NanoTabPFNClassifierConfig()
+model_config = TabICLClassifierConfig()
 
-model = NanoTabPFNModel(**asdict(model_config))
+model = TabICLModel(**asdict(model_config))
 
 
 class ToyEvaluationLoggerCallback(ConsoleLoggerCallback):

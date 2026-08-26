@@ -22,8 +22,18 @@ class NanoTabICLPriorConfig:
     num_datapoints_max: int = 1000
     num_features: int = 20
     num_test_datapoints: int = 128
+
+
+@dataclass
+class NanoTabICLClassificationPriorConfig(NanoTabICLPriorConfig):
     problem: str = "classification"
     max_num_classes: int = 10
+
+
+@dataclass
+class NanoTabICLRegressionPriorConfig(NanoTabICLPriorConfig):
+    problem: str = "regression"
+    max_num_classes: int = 0
 
 
 @dataclass
@@ -32,10 +42,20 @@ class TabICLPriorConfig:
     num_datapoints_max: int = 1024
     num_features_min: int = 2
     num_features_max: int = 100
-    problem: str = "classification"
-    max_num_classes: int = 10
     prior_type: str = "mix_scm"
     n_jobs: int = 1
+
+
+@dataclass
+class TabICLClassificationPriorConfig(TabICLPriorConfig):
+    problem: str = "classification"
+    max_num_classes: int = 10
+
+
+@dataclass
+class TabICLRegressionPriorConfig(TabICLPriorConfig):
+    problem: str = "regression"
+    max_num_classes: int = 0
 
 
 @dataclass

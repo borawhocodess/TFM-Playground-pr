@@ -1,39 +1,32 @@
 from dataclasses import asdict
 
-from pfns.bar_distribution import FullSupportBarDistribution
 from sklearn.metrics import r2_score
 
 from tfmplayground.callbacks import ConsoleLoggerCallback
-from tfmplayground.configs.models import NanoTabPFNRegressorConfig
-from tfmplayground.configs.priors import RegressionPriorDumpConfig
+from tfmplayground.configs.models import TabICLRegressorConfig
+from tfmplayground.configs.priors import TabICLRegressionPriorConfig
 from tfmplayground.configs.training import TrainingConfig
 from tfmplayground.evaluation import TOY_TASKS_REGRESSION, get_openml_predictions
 from tfmplayground.interface import TabularRegressor
-from tfmplayground.models.nanotabpfn import NanoTabPFNModel
-from tfmplayground.priors import DumpPrior
+from tfmplayground.models.tabicl import TabICLModel
+from tfmplayground.priors import TabICLPrior
 from tfmplayground.train import train
-from tfmplayground.utils import get_default_device, make_global_bucket_edges, set_randomness_seed
+from tfmplayground.utils import QuantileLoss, get_default_device, set_randomness_seed
 
-dump_config = RegressionPriorDumpConfig()
+prior_config = TabICLRegressionPriorConfig(num_datapoints_max=400, num_features_max=20)
 training_config = TrainingConfig()
 
 set_randomness_seed(training_config.seed)
 
 device = get_default_device()
 
-prior = DumpPrior(filename=dump_config.filename, device=device)
+prior = TabICLPrior(config=prior_config, device=device)
 
-model_config = NanoTabPFNRegressorConfig()
+model_config = TabICLRegressorConfig()
 
-model = NanoTabPFNModel(**asdict(model_config))
+model = TabICLModel(**asdict(model_config))
 
-bucket_edges = make_global_bucket_edges(
-    filename=dump_config.filename,
-    n_buckets=model_config.num_outputs,
-    device=device,
-)
-
-dist = FullSupportBarDistribution(bucket_edges)
+criterion = QuantileLoss(n_quantiles=model_config.num_quantiles)
 
 
 class EvaluationLoggerCallback(ConsoleLoggerCallback):
@@ -41,7 +34,7 @@ class EvaluationLoggerCallback(ConsoleLoggerCallback):
         self.tasks = tasks
 
     def on_epoch_end(self, epoch: int, epoch_time: float, loss: float, model, **kwargs):
-        regressor = TabularRegressor(model, dist, device)
+        regressor = TabularRegressor(model, criterion, device)
         predictions = get_openml_predictions(model=regressor, tasks=self.tasks)
         scores = []
         for _dataset_name, (y_true, y_pred, _) in predictions.items():
@@ -58,7 +51,7 @@ callbacks = [EvaluationLoggerCallback(TOY_TASKS_REGRESSION)]
 trained_model, loss = train(
     model=model,
     prior=prior,
-    criterion=dist,
+    criterion=criterion,
     epochs=training_config.epochs,
     batch_size=training_config.batch_size,
     steps_per_epoch=training_config.steps,

@@ -45,7 +45,7 @@ def make_global_bucket_edges(filename, n_buckets=100, device=None, max_y=5_000_0
 
 
 class QuantileLoss(nn.Module):
-    """Pinball loss summed over a fixed grid of quantile levels."""
+    """Pinball loss averaged over a fixed grid of quantile levels."""
 
     def __init__(self, n_quantiles: int):
         super().__init__()
@@ -56,7 +56,7 @@ class QuantileLoss(nn.Module):
         alphas = self.alphas.to(logits.device)
         error = target.unsqueeze(-1) - logits
         losses = torch.maximum(alphas * error, (alphas - 1.0) * error)
-        return losses.sum(dim=-1)
+        return losses.mean(dim=-1)
 
     def mean(self, logits: torch.Tensor) -> torch.Tensor:
         return logits.mean(dim=-1)

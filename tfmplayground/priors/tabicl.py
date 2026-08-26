@@ -4,7 +4,6 @@ import torch
 from tabicl.prior import PriorDataset as TabICLPriorDataset
 from torch.utils.data import DataLoader
 
-from tfmplayground.configs.priors import TabICLPriorConfig
 from tfmplayground.priors.base import Prior
 from tfmplayground.utils import get_default_device
 
@@ -81,8 +80,8 @@ class TabICLPriorDataLoader(DataLoader):
 
 
 class TabICLPrior(Prior):
-    def __init__(self, config=None, device=None):
-        self.config = config if config is not None else TabICLPriorConfig()
+    def __init__(self, config, device=None):
+        self.config = config
         self.device = device if device is not None else get_default_device()
         if self.config.num_datapoints_min >= self.config.num_datapoints_max:
             raise ValueError("num_datapoints_min must be smaller than num_datapoints_max")

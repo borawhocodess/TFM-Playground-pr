@@ -36,7 +36,7 @@ model = pretrainTFM(
     model=NanoTabPFNModel(config=modelconfig),
     prior=Prior(config=priorconfig),
     eval=tabarenasubsampled(config=evalconfig),
-    trainig=trainer(config=trainconfig)
+    training=trainer(config=trainconfig),
 )
 ```
 

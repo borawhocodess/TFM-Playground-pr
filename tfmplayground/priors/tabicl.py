@@ -59,13 +59,9 @@ class TabICLPriorDataLoader(DataLoader):
 
     def tabicl_to_ours(self, d):
         x, y, active_features, seqlen, train_size = d
-        active_features = active_features[
-            0
-        ].item()  # should be all the same since we use batch_size_per_gp=batch_size (not true in practice!)
-        x = x[:, :, :active_features]
-        train_test_split_index = train_size[
-            0
-        ].item()  # should be all the same since we use batch_size_per_gp=batch_size
+        max_active_features = int(active_features.max().item())
+        x = x[:, :, :max_active_features]
+        train_test_split_index = train_size[0].item()
         return dict(
             x=x.to(self.device),
             y=y.to(self.device),

@@ -39,7 +39,6 @@ import torch.nn.functional as F
 from numpy.random import randint
 from sklearn.ensemble import ExtraTreesRegressor
 
-from tfmplayground.configs.priors import NanoTabICLPriorConfig
 from tfmplayground.priors.base import Prior
 from tfmplayground.utils import get_default_device
 
@@ -367,8 +366,8 @@ def rand_weights(n_batch: int, n: int) -> torch.Tensor:
 
 
 class NanoTabICLPrior(Prior):
-    def __init__(self, config=None, device=None):
-        self.config = config if config is not None else NanoTabICLPriorConfig()
+    def __init__(self, config, device=None):
+        self.config = config
         self.device = device if device is not None else get_default_device()
         if self.config.num_test_datapoints >= self.config.num_datapoints_max:
             raise ValueError("num_test_datapoints must be smaller than num_datapoints_max")

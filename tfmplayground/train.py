@@ -58,7 +58,7 @@ def train(
                 output = model(x_train, y_train, x_test)
                 if classification_task:
                     y_test = y_test.reshape((-1,)).to(torch.long)
-                    output = output.view(-1, output.shape[-1])
+                    output = output.reshape(-1, output.shape[-1])
 
                 losses = criterion(output, y_test)
                 loss = losses.mean()

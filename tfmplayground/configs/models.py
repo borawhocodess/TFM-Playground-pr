@@ -56,3 +56,79 @@ class TabICLClassifierConfig(TabICLModelConfig):
 @dataclass
 class TabICLRegressorConfig(TabICLModelConfig):
     max_classes: int = 0
+
+
+@dataclass
+class NanoTabICLModelConfig:
+    embed_dim: int = 128
+    col_num_blocks: int = 3
+    row_num_blocks: int = 3
+    icl_num_blocks: int = 12
+    col_nhead: int = 8
+    row_nhead: int = 8
+    icl_nhead: int = 8
+    feature_group_size: int = 3
+    n_cls_cols: int = 4
+    n_cls_rows: int = 128
+
+
+@dataclass
+class NanoTabICLClassifierConfig(NanoTabICLModelConfig):
+    max_classes: int = 10
+    out_dim: int = 10
+
+
+@dataclass
+class NanoTabICLRegressorConfig(NanoTabICLModelConfig):
+    max_classes: int = 0
+    out_dim: int = 999
+
+
+@dataclass
+class ModdedNanoTabPFNModelConfig:
+    l: int = 5
+    a: int = 4
+    e: int = 256
+    h: int = 768
+    residual_decay: float = 0.95
+    thinking_rows: int = 24
+    feature_group_size: int = 5
+
+
+@dataclass
+class ModdedNanoTabPFNClassifierConfig(ModdedNanoTabPFNModelConfig):
+    o: int = 10
+
+
+@dataclass
+class ModdedNanoTabPFNRegressorConfig(ModdedNanoTabPFNModelConfig):
+    o: int = 999
+
+
+@dataclass
+class TabFMModelConfig:
+    fourier_sigma: float = 1.0
+    embed_dim: int = 8
+    max_classes: int = 3
+    col_num_blocks: int = 2
+    col_nhead: int = 2
+    col_num_inds: int = 4
+    row_num_blocks: int = 2
+    row_nhead: int = 2
+    row_num_cls: int = 2
+    icl_num_blocks: int = 2
+    icl_nhead: int = 2
+    ff_factor: int = 2
+    feature_group_size: int = 3
+    num_freq: int = 32
+    decoder_hidden: int | None = None
+
+
+@dataclass
+class TabFMClassifierConfig(TabFMModelConfig):
+    is_classifier: bool = True
+
+
+@dataclass
+class TabFMRegressorConfig(TabFMModelConfig):
+    is_classifier: bool = False

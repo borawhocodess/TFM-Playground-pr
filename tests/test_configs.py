@@ -1,0 +1,78 @@
+import inspect
+import re
+from dataclasses import fields
+from types import SimpleNamespace
+
+import pytest
+
+from tfmplayground.configs.models import (
+    ModdedNanoTabPFNClassifierConfig,
+    ModdedNanoTabPFNRegressorConfig,
+    NanoTabICLClassifierConfig,
+    NanoTabICLRegressorConfig,
+    NanoTabPFNClassifierConfig,
+    NanoTabPFNRegressorConfig,
+    TabFMClassifierConfig,
+    TabFMRegressorConfig,
+    TabICLClassifierConfig,
+    TabICLRegressorConfig,
+)
+from tfmplayground.models.moddednanotabpfn import ModdedNanoTabPFNModel
+from tfmplayground.models.nanotabicl import NanoTabICLModel
+from tfmplayground.models.nanotabpfn import NanoTabPFNModel
+from tfmplayground.models.tabfm import TabFMModel
+from tfmplayground.models.tabicl import TabICLModel
+
+PAIRS = [
+    (NanoTabPFNModel, NanoTabPFNClassifierConfig),
+    (NanoTabPFNModel, NanoTabPFNRegressorConfig),
+    (TabICLModel, TabICLClassifierConfig),
+    (TabICLModel, TabICLRegressorConfig),
+    (NanoTabICLModel, NanoTabICLClassifierConfig),
+    (NanoTabICLModel, NanoTabICLRegressorConfig),
+    (ModdedNanoTabPFNModel, ModdedNanoTabPFNClassifierConfig),
+    (ModdedNanoTabPFNModel, ModdedNanoTabPFNRegressorConfig),
+    (TabFMModel, TabFMClassifierConfig),
+    (TabFMModel, TabFMRegressorConfig),
+]
+
+
+def constructor_parameters(model_class):
+    # an adapter may take **kwargs and pass them to the vendored class, so walk the chain
+    names = set()
+    for cls in model_class.__mro__:
+        init = cls.__dict__.get("__init__")
+        if init is None:
+            continue
+        parameters = inspect.signature(init).parameters
+        names |= {name for name in parameters if name not in ("self", "args", "kwargs", "config")}
+    return names
+
+
+@pytest.mark.parametrize(("model_class", "config_class"), PAIRS, ids=lambda p: p.__name__)
+def test_config_covers_every_constructor_parameter(model_class, config_class):
+    ours = {field.name for field in fields(config_class)}
+    theirs = constructor_parameters(model_class)
+    assert theirs <= ours
+
+
+@pytest.mark.parametrize(("model_class", "config_class"), PAIRS, ids=lambda p: p.__name__)
+def test_config_builds_its_model(model_class, config_class):
+    model = model_class(config=config_class())
+    assert any(parameter.requires_grad for parameter in model.parameters())
+
+
+@pytest.mark.parametrize(("model_class", "config_class"), PAIRS, ids=lambda p: p.__name__)
+def test_every_config_field_reaches_the_model(model_class, config_class):
+    source = inspect.getsource(model_class.__init__)
+    read = set(re.findall(r"config\.(\w+)", source))
+    ours = {field.name for field in fields(config_class)}
+    assert ours == read
+
+
+@pytest.mark.parametrize(("model_class", "config_class"), PAIRS, ids=lambda p: p.__name__)
+def test_config_may_be_any_object_with_the_fields(model_class, config_class):
+    # the adapters read attributes, so a config need not be one of our dataclasses
+    plain = SimpleNamespace(**{f.name: getattr(config_class(), f.name) for f in fields(config_class)})
+    model = model_class(config=plain)
+    assert any(parameter.requires_grad for parameter in model.parameters())

@@ -2,6 +2,13 @@ import numpy as np
 import pytest
 import torch
 
+from tfmplayground.configs.models import (
+    ModdedNanoTabPFNClassifierConfig,
+    NanoTabICLClassifierConfig,
+    NanoTabPFNClassifierConfig,
+    TabFMClassifierConfig,
+    TabICLClassifierConfig,
+)
 from tfmplayground.interface import TabularClassifier
 from tfmplayground.models import (
     ModdedNanoTabPFNModel,
@@ -14,50 +21,56 @@ from tfmplayground.models import (
 
 def make_nanotabpfn():
     return NanoTabPFNModel(
-        embedding_size=16,
-        num_attention_heads=2,
-        mlp_hidden_size=32,
-        num_layers=2,
-        num_outputs=3,
+        config=NanoTabPFNClassifierConfig(
+            embedding_size=16,
+            num_attention_heads=2,
+            mlp_hidden_size=32,
+            num_layers=2,
+            num_outputs=3,
+        )
     )
 
 
 def make_nanotabicl():
     return NanoTabICLModel(
-        max_classes=3,
-        out_dim=3,
-        embed_dim=16,
-        col_num_blocks=1,
-        row_num_blocks=2,
-        icl_num_blocks=2,
-        col_nhead=2,
-        row_nhead=2,
-        icl_nhead=2,
-        n_cls_cols=2,
-        n_cls_rows=8,
+        config=NanoTabICLClassifierConfig(
+            max_classes=3,
+            out_dim=3,
+            embed_dim=16,
+            col_num_blocks=1,
+            row_num_blocks=2,
+            icl_num_blocks=2,
+            col_nhead=2,
+            row_nhead=2,
+            icl_nhead=2,
+            n_cls_cols=2,
+            n_cls_rows=8,
+        )
     )
 
 
 def make_moddednanotabpfn():
-    return ModdedNanoTabPFNModel(l=2, a=2, e=16, h=32, o=3)
+    return ModdedNanoTabPFNModel(config=ModdedNanoTabPFNClassifierConfig(l=2, a=2, e=16, h=32, o=3))
 
 
 def make_tabfm():
-    return TabFMModel(max_classes=3, is_classifier=True)
+    return TabFMModel(config=TabFMClassifierConfig(max_classes=3))
 
 
 def make_tabicl():
     return TabICLModel(
-        max_classes=3,
-        embed_dim=32,
-        col_num_blocks=1,
-        row_num_blocks=1,
-        icl_num_blocks=1,
-        col_nhead=2,
-        row_nhead=2,
-        icl_nhead=2,
-        col_num_inds=8,
-        row_num_cls=2,
+        config=TabICLClassifierConfig(
+            max_classes=3,
+            embed_dim=32,
+            col_num_blocks=1,
+            row_num_blocks=1,
+            icl_num_blocks=1,
+            col_nhead=2,
+            row_nhead=2,
+            icl_nhead=2,
+            col_num_inds=8,
+            row_num_cls=2,
+        )
     )
 
 
@@ -83,17 +96,19 @@ def test_forward_follows_base_contract(make_model):
 def make_tabicl_with_dropout():
     torch.manual_seed(0)
     model = TabICLModel(
-        max_classes=3,
-        embed_dim=32,
-        col_num_blocks=1,
-        row_num_blocks=1,
-        icl_num_blocks=1,
-        col_nhead=2,
-        row_nhead=2,
-        icl_nhead=2,
-        col_num_inds=8,
-        row_num_cls=2,
-        dropout=0.2,
+        config=TabICLClassifierConfig(
+            max_classes=3,
+            embed_dim=32,
+            col_num_blocks=1,
+            row_num_blocks=1,
+            icl_num_blocks=1,
+            col_nhead=2,
+            row_nhead=2,
+            icl_nhead=2,
+            col_num_inds=8,
+            row_num_cls=2,
+            dropout=0.2,
+        )
     )
     # zero_init leaves every residual branch at zero, where dropout cannot change anything
     with torch.no_grad():

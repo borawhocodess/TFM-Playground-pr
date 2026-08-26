@@ -9,3 +9,4 @@ class TrainingConfig:
     epochs: int = 10000
     lr: float = 1e-4
     grad_clip: float = 1.0
+    min_border_targets: int = 100_000

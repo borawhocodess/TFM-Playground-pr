@@ -22,16 +22,21 @@ def get_default_device():
     return device
 
 
-def make_bucket_borders(prior, num_buckets, batch_size, max_batches):
+def make_bucket_borders(prior, num_buckets, batch_size, min_targets):
     normalized_targets = []
-    for _ in range(max_batches):
+    collected = 0
+    while collected < min_targets:
         _, y_train, _, y_test = prior.batch(batch_size)
         y_train = y_train.detach().to("cpu", torch.float32)
         y_test = y_test.detach().to("cpu", torch.float32)
         y_mean = y_train.mean(dim=1, keepdim=True)
         y_std = y_train.std(dim=1, keepdim=True) + 1e-8
         y = torch.cat([y_train, y_test], dim=1)
-        normalized_targets.append(((y - y_mean) / y_std).ravel())
+        normalized = ((y - y_mean) / y_std).ravel()
+        if normalized.numel() == 0:
+            raise ValueError("the prior gives no targets")
+        normalized_targets.append(normalized)
+        collected += normalized.numel()
 
     ys = torch.cat(normalized_targets)
     ys = ys[torch.isfinite(ys)]

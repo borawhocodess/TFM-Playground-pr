@@ -99,7 +99,7 @@ def test_an_unfitted_model_says_so(name):
 @pytest.mark.parametrize("name", SIZED)
 def test_fitting_gives_increasing_edges(name):
     model = build(name, 7)
-    model.borders = make_bucket_borders(NormalPrior(), model.borders.numel() - 1, batch_size=4, max_batches=8)
+    model.borders = make_bucket_borders(NormalPrior(), model.borders.numel() - 1, batch_size=4, min_targets=2000)
     assert model.borders.numel() == 8
     assert (model.borders.diff() > 0).all()
 
@@ -107,7 +107,7 @@ def test_fitting_gives_increasing_edges(name):
 @pytest.mark.parametrize("name", SIZED)
 def test_the_edges_survive_a_save_and_a_load(name):
     trained = build(name, 7)
-    trained.borders = make_bucket_borders(NormalPrior(), trained.borders.numel() - 1, batch_size=4, max_batches=8)
+    trained.borders = make_bucket_borders(NormalPrior(), trained.borders.numel() - 1, batch_size=4, min_targets=2000)
     loaded = build(name, 7)
     loaded.load_state_dict(trained.state_dict())
     assert torch.equal(loaded.borders, trained.borders)
@@ -126,7 +126,10 @@ def test_the_vendored_modded_class_cannot_do_that():
 def test_the_edges_are_fitted_on_the_values_the_loop_sees(name):
     model = build(name, 7)
     borders = make_bucket_borders(
-        NormalPrior(scale=50.0, shift=100.0), model.borders.numel() - 1, batch_size=4, max_batches=8
+        NormalPrior(scale=50.0, shift=100.0),
+        model.borders.numel() - 1,
+        batch_size=4,
+        min_targets=2000,
     )
     assert borders.abs().max() < 10
 
@@ -174,7 +177,7 @@ def test_make_global_bucket_edges_still_reads_a_dump(tmp_path):
 
 def test_too_few_targets_are_refused():
     with pytest.raises(ValueError, match="cannot make"):
-        make_bucket_borders(NormalPrior(), num_buckets=1000, batch_size=1, max_batches=1)
+        make_bucket_borders(NormalPrior(), num_buckets=100_000, batch_size=1, min_targets=2000)
 
 
 def test_repeated_targets_are_refused():
@@ -186,4 +189,4 @@ def test_repeated_targets_are_refused():
             return x[:, :12], y[:, :12], x[:, 12:], y[:, 12:]
 
     with pytest.raises(ValueError, match="no width"):
-        make_bucket_borders(RepeatingPrior(), num_buckets=9, batch_size=4, max_batches=8)
+        make_bucket_borders(RepeatingPrior(), num_buckets=9, batch_size=4, min_targets=2000)

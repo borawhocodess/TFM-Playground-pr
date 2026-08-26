@@ -12,7 +12,7 @@ from tfmplayground.training.callbacks import ConsoleLoggerCallback, WandbLoggerC
 from tfmplayground.training.train import train
 from tfmplayground.utils import get_default_device, set_randomness_seed
 
-prior_config = TabICLClassificationPriorConfig(num_datapoints_max=400, num_features_max=20)
+prior_config = TabICLClassificationPriorConfig(num_datapoints_max=50, num_features_max=3)
 training_config = TrainingConfig()
 
 set_randomness_seed(training_config.seed)

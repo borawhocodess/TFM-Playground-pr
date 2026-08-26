@@ -4,6 +4,42 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from tfmplayground.priors.base import Prior
+from tfmplayground.utils import get_default_device
+
+
+class DumpPrior(Prior):
+    def __init__(self, filename, device=None, starting_index=0):
+        self.filename = filename
+        with h5py.File(self.filename, "r") as f:
+            self.num_tables = f["X"].shape[0]
+            self.num_datapoints_max = f["X"].shape[1]
+            self.has_num_datapoints = "num_datapoints" in f
+        self.device = device if device is not None else get_default_device()
+        self.pointer = starting_index
+
+    def batch(self, batch_size):
+        if self.pointer + batch_size > self.num_tables:
+            self.pointer = 0
+        with h5py.File(self.filename, "r") as f:
+            end = self.pointer + batch_size
+            num_features = f["num_features"][self.pointer : end].max()
+            if self.has_num_datapoints:
+                max_seq_in_batch = int(f["num_datapoints"][self.pointer : end].max())
+            else:
+                max_seq_in_batch = int(self.num_datapoints_max)
+            x = torch.from_numpy(f["X"][self.pointer : end, :max_seq_in_batch, :num_features])
+            y = torch.from_numpy(f["y"][self.pointer : end, :max_seq_in_batch])
+            key = "train_test_split_index" if "train_test_split_index" in f else "single_eval_pos"
+            splits = f[key][self.pointer : end]
+            if splits.min() != splits.max():
+                raise ValueError(f"this batch spans tables split at {splits.min()} and at {splits.max()}")
+            sep = int(splits[0])
+            self.pointer += batch_size
+        x = x.to(self.device)
+        y = y.to(self.device)
+        return x[:, :sep], y[:, :sep], x[:, sep:], y[:, sep:]
+
 
 class PriorDumpDataLoader(DataLoader):
     """DataLoader that loads synthetic prior data from an HDF5 dump.

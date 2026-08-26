@@ -17,7 +17,7 @@ from tfmplayground.utils import get_default_device, set_randomness_seed
 dump_config = ClassificationPriorDumpConfig()
 training_config = TrainingConfig()
 
-set_randomness_seed(2402)
+set_randomness_seed(training_config.seed)
 
 device = get_default_device()
 

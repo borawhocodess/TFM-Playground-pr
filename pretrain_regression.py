@@ -17,7 +17,7 @@ from tfmplayground.utils import get_default_device, make_global_bucket_edges, se
 dump_config = RegressionPriorDumpConfig()
 training_config = TrainingConfig()
 
-set_randomness_seed(2402)
+set_randomness_seed(training_config.seed)
 
 device = get_default_device()
 

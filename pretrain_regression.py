@@ -10,7 +10,7 @@ from tfmplayground.configs.training import TrainingConfig
 from tfmplayground.evaluation import TOY_TASKS_REGRESSION, get_openml_predictions
 from tfmplayground.interface import TabularRegressor
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
-from tfmplayground.priors import PriorDumpDataLoader
+from tfmplayground.priors import DumpPrior
 from tfmplayground.train import train
 from tfmplayground.utils import get_default_device, make_global_bucket_edges, set_randomness_seed
 
@@ -21,12 +21,7 @@ set_randomness_seed(training_config.seed)
 
 device = get_default_device()
 
-prior = PriorDumpDataLoader(
-    filename=dump_config.filename,
-    num_steps=training_config.steps,
-    batch_size=training_config.batch_size,
-    device=device,
-)
+prior = DumpPrior(filename=dump_config.filename, device=device)
 
 model_config = NanoTabPFNRegressorConfig()
 
@@ -65,6 +60,8 @@ trained_model, loss = train(
     prior=prior,
     criterion=dist,
     epochs=training_config.epochs,
+    batch_size=training_config.batch_size,
+    steps_per_epoch=training_config.steps,
     lr=training_config.lr,
     grad_clip=training_config.grad_clip,
     device=device,

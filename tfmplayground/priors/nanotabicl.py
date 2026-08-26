@@ -31,7 +31,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -40,6 +39,7 @@ import torch.nn.functional as F
 from numpy.random import randint
 from sklearn.ensemble import ExtraTreesRegressor
 
+from tfmplayground.configs.priors import NanoTabICLPriorConfig
 from tfmplayground.priors.base import Prior
 from tfmplayground.utils import get_default_device
 
@@ -364,15 +364,6 @@ def rand_weights(n_batch: int, n: int) -> torch.Tensor:
     logits = log_weights + std_scale[:, None] * torch.randn(n_batch, n)
     logits = torch.stack([logits[i, torch.randperm(n)] for i in range(n_batch)], dim=0)  # no batch randperm available
     return np.sqrt(n) * row_normalize(torch.softmax(logits, dim=-1))
-
-
-@dataclass
-class NanoTabICLPriorConfig:
-    num_datapoints_max: int = 1000
-    num_features: int = 20
-    num_test_datapoints: int = 128
-    problem: str = "classification"
-    max_num_classes: int = 10
 
 
 class NanoTabICLPrior(Prior):

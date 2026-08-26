@@ -1,4 +1,5 @@
-from .base import Prior, PriorDataLoader, PriorDumpDataLoader
+from .base import Prior, PriorDataLoader
+from .dump import PriorDumpDataLoader
 from .moddednanoscm import ModdedNanoSCMPrior
 from .nanotabicl import NanoTabICLPrior
 from .tabicl import TabICLPriorDataLoader

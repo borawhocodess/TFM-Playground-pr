@@ -167,6 +167,7 @@ class NanoTabPFNModel(NanoTabPFN, TabularFoundationModel):
             num_layers=config.num_layers,
             num_outputs=config.num_outputs,
         )
+        self.register_buffer("borders", torch.zeros(config.num_outputs + 1))
 
     def forward(self, X_train, y_train, X_test):
         src = torch.cat([X_train, X_test], dim=1), y_train

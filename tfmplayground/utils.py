@@ -22,6 +22,39 @@ def get_default_device():
     return device
 
 
+def make_bucket_borders(prior, num_buckets, batch_size, max_batches):
+    normalized_targets = []
+    for _ in range(max_batches):
+        _, y_train, _, y_test = prior.batch(batch_size)
+        y_train = y_train.detach().to("cpu", torch.float32)
+        y_test = y_test.detach().to("cpu", torch.float32)
+        y_mean = y_train.mean(dim=1, keepdim=True)
+        y_std = y_train.std(dim=1, keepdim=True) + 1e-8
+        y = torch.cat([y_train, y_test], dim=1)
+        normalized_targets.append(((y - y_mean) / y_std).ravel())
+
+    ys = torch.cat(normalized_targets)
+    ys = ys[torch.isfinite(ys)]
+    if ys.numel() <= num_buckets:
+        raise ValueError(f"{ys.numel()} targets cannot make {num_buckets} buckets")
+
+    n = (ys.numel() // num_buckets) * num_buckets
+    ys = ys[:n]
+    ys_per_bucket = n // num_buckets
+    ys_sorted, _ = torch.sort(ys)
+    chunks = ys_sorted.reshape(num_buckets, ys_per_bucket)
+    interiors = (chunks[:-1, -1] + chunks[1:, 0]) / 2
+    min_outer = ys_sorted[0].unsqueeze(0)
+    max_outer = ys_sorted[-1].unsqueeze(0)
+    borders = torch.cat([min_outer, interiors, max_outer])
+
+    if borders.numel() != num_buckets + 1:
+        raise ValueError(f"{borders.numel()} borders cannot make {num_buckets} buckets")
+    if borders.numel() != torch.unique_consecutive(borders).numel():
+        raise ValueError("the targets repeat, so one bucket has no width")
+    return borders
+
+
 def make_global_bucket_edges(filename, n_buckets=100, device=None, max_y=5_000_000):
     if device is None:
         device = get_default_device()

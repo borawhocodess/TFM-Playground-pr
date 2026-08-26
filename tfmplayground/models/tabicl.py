@@ -37,6 +37,7 @@ class TabICLModel(TabICL, TabularFoundationModel):
             zero_init=config.zero_init,
             recompute=config.recompute,
         )
+        self.register_buffer("borders", torch.zeros(config.num_quantiles + 1))
 
     def forward(self, X_train, y_train, X_test):
         X = torch.cat([X_train, X_test], dim=1)

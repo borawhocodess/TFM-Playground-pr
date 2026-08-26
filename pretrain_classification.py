@@ -31,7 +31,7 @@ model = NanoTabPFNModel(
     embedding_size=args.embeddingsize,
     mlp_hidden_size=args.hiddensize,
     num_layers=args.layers,
-    num_outputs=prior.max_num_classes,
+    num_outputs=args.outputs,
 )
 
 

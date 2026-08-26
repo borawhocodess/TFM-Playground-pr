@@ -14,3 +14,24 @@ class PriorDataLoader:
     def __iter__(self):
         while True:
             yield self.prior.batch(self.batch_size)
+
+
+class DictPrior(Prior):
+    def __init__(self, loader):
+        self.loader = loader
+        self.batches = iter(loader)
+
+    def batch(self, batch_size):
+        try:
+            d = next(self.batches)
+        except StopIteration:
+            self.batches = iter(self.loader)
+            d = next(self.batches)
+        x = d["x"]
+        y = d["y"]
+        target_y = d["target_y"]
+        sep = int(d["train_test_split_index"])
+        loaded_batch_size = x.shape[0]
+        if loaded_batch_size != batch_size:
+            raise ValueError(f"batch_size is {batch_size} but the wrapped loader gives {loaded_batch_size}")
+        return x[:, :sep], y[:, :sep], x[:, sep:], target_y[:, sep:]

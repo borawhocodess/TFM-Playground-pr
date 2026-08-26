@@ -16,7 +16,6 @@ def train(
     prior: DataLoader,
     criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss,
     epochs: int,
-    accumulate_gradients: int = 1,
     lr: float = 1e-4,
     device: torch.device = None,
     callbacks: list[Callback] = None,
@@ -31,7 +30,6 @@ def train(
         criterion: (nn.CrossEntropyLoss | FullSupportBarDistribution) our loss criterion
         epochs: (int) the number of epochs we train for,
             the number of steps that constitute an epoch are decided by the prior
-        accumulate_gradients: (int) the number of gradients to accumulate before updating the weights
         device: (torch.device) the device we are using
         callbacks: A list of callback instances to execute at the end of each epoch. These can be used for
             logging, validation, or other custom actions.
@@ -50,15 +48,13 @@ def train(
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
 
-    assert prior.num_steps % accumulate_gradients == 0, "num_steps must be divisible by accumulate_gradients"
-
     try:
         for epoch in range(1, epochs + 1):
             epoch_start_time = time.time()
             model.train()  # Turn on the train mode
             optimizer.train()
             total_loss = 0.0
-            for i, full_data in enumerate(prior):
+            for full_data in prior:
                 train_test_split_index = full_data["train_test_split_index"]
                 x = full_data["x"].to(device)
                 y_train = full_data["y"][:, :train_test_split_index].to(device)
@@ -80,14 +76,13 @@ def train(
                     output = output.view(-1, output.shape[-1])
 
                 losses = criterion(output, targets)
-                loss = losses.mean() / accumulate_gradients
+                loss = losses.mean()
                 loss.backward()
-                total_loss += loss.cpu().detach().item() * accumulate_gradients
+                total_loss += loss.cpu().detach().item()
 
-                if (i + 1) % accumulate_gradients == 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                    optimizer.step()
-                    optimizer.zero_grad()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                optimizer.zero_grad()
 
             end_time = time.time()
             mean_loss = total_loss / len(prior)

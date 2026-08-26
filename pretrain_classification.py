@@ -82,7 +82,6 @@ trained_model, loss = train(
     prior=prior,
     criterion=criterion,
     epochs=training_config.epochs,
-    accumulate_gradients=training_config.accumulate_gradients,
     lr=training_config.lr,
     device=device,
     callbacks=callbacks,

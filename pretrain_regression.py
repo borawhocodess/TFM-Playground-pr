@@ -12,7 +12,7 @@ from tfmplayground.training.callbacks import ConsoleLoggerCallback
 from tfmplayground.training.train import train
 from tfmplayground.utils import get_default_device, make_bucket_borders, set_randomness_seed
 
-prior_config = TabICLRegressionPriorConfig(num_datapoints_max=50, num_features_max=3)
+prior_config = TabICLRegressionPriorConfig(num_datapoints_min=20, num_datapoints_max=50, num_features_max=3)
 training_config = TrainingConfig()
 
 set_randomness_seed(training_config.seed)

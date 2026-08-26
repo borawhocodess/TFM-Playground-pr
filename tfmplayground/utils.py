@@ -40,7 +40,7 @@ def make_bucket_borders(prior, num_buckets, batch_size, min_targets):
 
     ys = torch.cat(normalized_targets)
     ys = ys[torch.isfinite(ys)]
-    if ys.numel() <= num_buckets:
+    if ys.numel() < num_buckets:
         raise ValueError(f"{ys.numel()} targets cannot make {num_buckets} buckets")
 
     n = (ys.numel() // num_buckets) * num_buckets

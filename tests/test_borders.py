@@ -205,3 +205,42 @@ def test_repeated_targets_are_refused():
 
     with pytest.raises(ValueError, match="no width"):
         make_bucket_borders(RepeatingPrior(), num_buckets=9, batch_size=4, min_targets=2000)
+
+
+def test_exactly_one_target_for_each_bucket_is_allowed():
+    class OneEachPrior(Prior):
+        def batch(self, batch_size):
+            x = torch.randn(batch_size, 10, 3)
+            y = torch.randn(batch_size, 10)
+            return x[:, :5], y[:, :5], x[:, 5:], y[:, 5:]
+
+    borders = make_bucket_borders(OneEachPrior(), num_buckets=10, batch_size=1, min_targets=10)
+    assert borders.numel() == 11
+    assert (borders.diff() > 0).all()
+
+
+def test_a_nonfinite_target_drops_only_its_own_table():
+    class OneBadTablePrior(Prior):
+        def batch(self, batch_size):
+            x = torch.randn(batch_size, 20, 3)
+            y = torch.randn(batch_size, 20)
+            y[0, 0] = float("nan")
+            y[0, 1] = float("inf")
+            return x[:, :12], y[:, :12], x[:, 12:], y[:, 12:]
+
+    borders = make_bucket_borders(OneBadTablePrior(), num_buckets=9, batch_size=4, min_targets=400)
+    assert torch.isfinite(borders).all()
+    assert (borders.diff() > 0).all()
+
+
+def test_a_batch_of_one_bad_table_leaves_nothing():
+    # the mean and the standard deviation are taken for each table, so one bad value spoils that table
+    class AllBadPrior(Prior):
+        def batch(self, batch_size):
+            x = torch.randn(batch_size, 20, 3)
+            y = torch.randn(batch_size, 20)
+            y[:, 0] = float("nan")
+            return x[:, :12], y[:, :12], x[:, 12:], y[:, 12:]
+
+    with pytest.raises(ValueError, match="0 targets cannot make"):
+        make_bucket_borders(AllBadPrior(), num_buckets=9, batch_size=1, min_targets=200)

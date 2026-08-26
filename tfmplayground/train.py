@@ -19,7 +19,6 @@ def train(
     lr: float = 1e-4,
     device: torch.device = None,
     callbacks: list[Callback] = None,
-    multi_gpu: bool = False,
 ):
     """
     Trains our model on the given prior using the given criterion.
@@ -37,8 +36,6 @@ def train(
     Returns:
         (torch.Tensor) a tensor of shape (num_rows, batch_size, num_features, embedding_size)
     """
-    if multi_gpu:
-        model = nn.DataParallel(model)
     if callbacks is None:
         callbacks = []
     if not device:
@@ -95,17 +92,15 @@ def train(
                         epoch,
                         end_time - epoch_start_time,
                         mean_loss,
-                        (model.module if multi_gpu else model),
+                        model,
                         dist=criterion,
                     )
                 else:
-                    callback.on_epoch_end(
-                        epoch, end_time - epoch_start_time, mean_loss, (model.module if multi_gpu else model)
-                    )
+                    callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, model)
     except KeyboardInterrupt:
         pass
     finally:
         for callback in callbacks:
             callback.close()
 
-    return (model.module if multi_gpu else model), total_loss
+    return model, total_loss

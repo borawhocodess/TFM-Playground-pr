@@ -36,3 +36,13 @@ class TabICLPriorConfig:
     max_num_classes: int = 10
     prior_type: str = "mix_scm"
     n_jobs: int = 1
+
+
+@dataclass
+class ClassificationPriorDumpConfig:
+    filename: str = "50x3_3_100k_classification.h5"
+
+
+@dataclass
+class RegressionPriorDumpConfig:
+    filename: str = "50x3_1280k_regression.h5"

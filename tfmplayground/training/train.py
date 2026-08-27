@@ -33,6 +33,7 @@ def train(
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
     batches = iter(PriorDataLoader(prior, batch_size))
+    mean_loss = 0.0
 
     try:
         for epoch in range(1, epochs + 1):

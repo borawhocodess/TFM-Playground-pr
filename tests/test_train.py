@@ -43,6 +43,11 @@ class TooManyClassesPrior(Prior):
         return x[:, :12], y[:, :12], x[:, 12:], y[:, 12:]
 
 
+class StoppedPrior(Prior):
+    def batch(self, batch_size):
+        raise KeyboardInterrupt
+
+
 def small(outputs):
     return dict(embedding_size=16, num_attention_heads=2, mlp_hidden_size=32, num_layers=1, num_outputs=outputs)
 
@@ -155,3 +160,10 @@ def test_a_class_the_model_can_emit_is_let_through():
     model = NanoTabPFNModel(config=NanoTabPFNClassifierConfig(**small(8)))
     _, loss = run(model, TooManyClassesPrior(), nn.CrossEntropyLoss(), [Quiet()])
     assert loss > 0
+
+
+def test_an_interrupt_in_the_first_epoch_hands_back_the_model():
+    model = NanoTabPFNModel(config=NanoTabPFNClassifierConfig(**small(3)))
+    trained, loss = run(model, StoppedPrior(), nn.CrossEntropyLoss(), [Quiet()])
+    assert trained is model
+    assert loss == 0.0

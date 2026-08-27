@@ -499,3 +499,20 @@ def test_without_a_device_the_default_one_is_taken(tmp_path, offline_openml, mon
         training=TrainingConfig(epochs=1, steps=1, batch_size=2),
     )
     assert seen["device"] == get_default_device()
+
+
+def test_the_training_package_exports_its_entry_points():
+    import tfmplayground.training as training_package
+
+    assert training_package.pretrainTFM is pretrainTFM
+    assert "train" in training_package.__all__
+    for name in training_package.__all__:
+        assert hasattr(training_package, name)
+
+
+def test_the_evaluation_package_exports_its_helpers():
+    import tfmplayground.evaluation as evaluation_package
+
+    assert evaluation_package.task_ids is task_ids
+    for name in evaluation_package.__all__:
+        assert hasattr(evaluation_package, name)

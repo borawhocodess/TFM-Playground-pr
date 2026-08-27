@@ -1,3 +1,4 @@
+import os
 import random
 import uuid
 from dataclasses import asdict
@@ -183,7 +184,9 @@ class Experiment:
                 "torch": torch.get_rng_state(),
             },
         }
-        torch.save(checkpoint, path)
+        temporary_path = path.with_suffix(".tmp")
+        torch.save(checkpoint, temporary_path)
+        os.replace(temporary_path, path)
 
     def save_checkpoints(self, model, optimizer, epoch, prior):
         self.save_checkpoint(self.last_checkpoint_path, model, optimizer, epoch, prior)

@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import numpy as np
+import pytest
 import schedulefree
 import torch
 from pfns.bar_distribution import FullSupportBarDistribution
@@ -183,3 +186,20 @@ def test_a_regression_file_names_its_own_problem(tmp_path):
     saved = NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(9)))
     run_experiment.save_checkpoint(run_experiment.last_checkpoint_path, saved, optimizer(saved), 1, None)
     assert read(tmp_path, "last")["problem"] == "regression"
+
+
+def test_a_failed_write_leaves_the_old_file_whole(tmp_path, monkeypatch):
+    run(tmp_path, epochs=1)
+    target = only(tmp_path, "last")
+    good = target.read_bytes()
+    run_experiment = experiment(tmp_path)
+    saved = model()
+
+    def half_write(checkpoint, path):
+        Path(path).write_bytes(b"half a file")
+        raise OSError("the disk is full")
+
+    monkeypatch.setattr(torch, "save", half_write)
+    with pytest.raises(OSError):
+        run_experiment.save_checkpoint(target, saved, optimizer(saved), 2, None)
+    assert target.read_bytes() == good

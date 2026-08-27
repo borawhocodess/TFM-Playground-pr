@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sklearn.metrics import r2_score, roc_auc_score
 
-from tfmplayground.evaluation.evaluation import get_openml_predictions
+from tfmplayground.evaluation.evaluation import get_openml_predictions, task_ids
 from tfmplayground.interface import TabularClassifier, TabularRegressor
 
 
@@ -108,16 +108,15 @@ class ExperimentCallback(BaseLoggerCallback):
 
 
 class ExperimentEvaluationCallback(ExperimentCallback):
-    def __init__(self, experiment, config, tasks, device):
+    def __init__(self, experiment, config, device):
         super().__init__(experiment)
         self.config = config
-        self.tasks = tasks
         self.device = device
 
     def predictions(self, model):
         return get_openml_predictions(
             model=model,
-            tasks=self.tasks,
+            tasks=task_ids(self.config.tasks, self.problem),
             max_n_features=self.config.max_n_features,
             max_n_samples=self.config.max_n_samples,
         )
@@ -135,6 +134,7 @@ class ExperimentEvaluationCallback(ExperimentCallback):
 
 
 class ClassifierExperimentEvaluationCallback(ExperimentEvaluationCallback):
+    problem = "classification"
     metric = "roc_auc"
 
     def evaluate(self, model, **kwargs):
@@ -145,6 +145,7 @@ class ClassifierExperimentEvaluationCallback(ExperimentEvaluationCallback):
 
 
 class RegressorExperimentEvaluationCallback(ExperimentEvaluationCallback):
+    problem = "regression"
     metric = "r2"
 
     def evaluate(self, model, **kwargs):

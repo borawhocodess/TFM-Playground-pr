@@ -74,6 +74,14 @@ TABARENA_TASKS = [
 ]
 
 
+def task_ids(tasks, problem):
+    if tasks == "toy":
+        return TOY_TASKS_CLASSIFICATION if problem == "classification" else TOY_TASKS_REGRESSION
+    if tasks == "tabarena":
+        return TABARENA_TASKS
+    return tasks
+
+
 @torch.no_grad()
 def get_openml_predictions(
     *,

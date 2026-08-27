@@ -1,0 +1,118 @@
+import numpy as np
+import pytest
+import torch
+
+from tfmplayground.configs.evaluation import EvaluationConfig
+from tfmplayground.configs.models import NanoTabPFNClassifierConfig, NanoTabPFNRegressorConfig
+from tfmplayground.configs.training import RegressionTrainingConfig, TrainingConfig
+from tfmplayground.evaluation.evaluation import (
+    TABARENA_TASKS,
+    TOY_TASKS_CLASSIFICATION,
+    TOY_TASKS_REGRESSION,
+    task_ids,
+)
+from tfmplayground.models.nanotabpfn import NanoTabPFNModel
+from tfmplayground.models.tabicl import TabICLModel
+from tfmplayground.priors import Prior, TabICLPrior
+from tfmplayground.training import callbacks as callbacks_source
+from tfmplayground.training import pretrain as pretrain_module
+from tfmplayground.training.callbacks import ClassifierExperimentEvaluationCallback
+from tfmplayground.training.pretrain import pretrainTFM
+from tfmplayground.utils import Experiment
+
+
+class TinyPrior(Prior):
+    def batch(self, batch_size):
+        x = torch.randn(batch_size, 20, 3)
+        y = torch.randint(0, 3, (batch_size, 20)).float()
+        return x[:, :12], y[:, :12], x[:, 12:], y[:, 12:]
+
+
+@pytest.fixture
+def offline_openml(monkeypatch, tmp_path):
+    rng = np.random.default_rng(0)
+    y_true = rng.integers(0, 3, size=30)
+    y_proba = rng.random((30, 3))
+    y_proba = y_proba / y_proba.sum(axis=1, keepdims=True)
+    predictions = {"toy": (y_true, y_proba.argmax(axis=1), y_proba)}
+    monkeypatch.setattr(callbacks_source, "get_openml_predictions", lambda **kwargs: predictions)
+
+    class ExperimentInTmp(Experiment):
+        def __init__(self, config):
+            config.experiments_dir = str(tmp_path)
+            super().__init__(config)
+
+    monkeypatch.setattr(pretrain_module, "Experiment", ExperimentInTmp)
+    return predictions
+
+
+def small(outputs):
+    return dict(embedding_size=16, num_attention_heads=2, mlp_hidden_size=32, num_layers=1, num_outputs=outputs)
+
+
+def test_the_classification_call_trains_and_writes_its_run(tmp_path, offline_openml):
+    model = pretrainTFM(
+        problem="classification",
+        model=NanoTabPFNModel(config=NanoTabPFNClassifierConfig(**small(3))),
+        prior=TinyPrior(),
+        eval=EvaluationConfig(tasks="toy"),
+        training=TrainingConfig(epochs=2, steps=2, batch_size=2),
+    )
+    assert isinstance(model, NanoTabPFNModel)
+    log = next(tmp_path.rglob("*-log.txt")).read_text()
+    assert "e:1" in log and "e:2" in log
+    assert "roc_auc:" in log
+    assert "runtime:" in log
+
+
+def test_the_regression_call_fits_borders_and_trains(tmp_path, offline_openml, monkeypatch):
+    monkeypatch.setattr(
+        pretrain_module, "make_bucket_borders", lambda **kwargs: torch.linspace(-3, 3, kwargs["num_buckets"] + 1)
+    )
+    model = pretrainTFM(
+        problem="regression",
+        model=NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(9))),
+        prior=TinyPrior(),
+        eval=EvaluationConfig(tasks="toy"),
+        training=RegressionTrainingConfig(epochs=1, steps=2, batch_size=2),
+    )
+    assert (model.borders.diff() > 0).all()
+    assert "r2:" in next(tmp_path.rglob("*-log.txt")).read_text()
+
+
+def test_the_bare_classification_call_builds_the_defaults(tmp_path, offline_openml, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(pretrain_module, "train", lambda **kwargs: (seen.update(kwargs), (kwargs["model"], 0.0))[1])
+    model = pretrainTFM(problem="classification")
+    assert isinstance(model, TabICLModel)
+    assert isinstance(seen["prior"], TabICLPrior)
+    assert isinstance(seen["criterion"], torch.nn.CrossEntropyLoss)
+    assert isinstance(seen["callbacks"][0], ClassifierExperimentEvaluationCallback)
+
+
+def test_an_unknown_problem_is_refused():
+    with pytest.raises(ValueError, match="classification or regression"):
+        pretrainTFM(problem="clustering")
+
+
+def test_the_seed_is_set_before_the_defaults_are_built(tmp_path, offline_openml, monkeypatch):
+    monkeypatch.setattr(pretrain_module, "train", lambda **kwargs: (kwargs["model"], 0.0))
+    first = pretrainTFM(problem="classification")
+    torch.manual_seed(999)
+    second = pretrainTFM(problem="classification")
+    for a, b in zip(first.parameters(), second.parameters(), strict=True):
+        assert torch.equal(a, b)
+
+
+def test_each_problem_reads_toy_as_its_own_list():
+    assert task_ids("toy", "classification") == TOY_TASKS_CLASSIFICATION
+    assert task_ids("toy", "regression") == TOY_TASKS_REGRESSION
+
+
+def test_tabarena_is_named_not_listed():
+    assert task_ids("tabarena", "classification") == TABARENA_TASKS
+    assert task_ids("tabarena", "regression") == TABARENA_TASKS
+
+
+def test_a_raw_list_of_tasks_still_works():
+    assert task_ids([59, 2382], "classification") == [59, 2382]

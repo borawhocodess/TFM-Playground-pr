@@ -29,7 +29,7 @@ from tfmplayground.evaluation.evaluation import (
     TOY_TASKS_REGRESSION,
     task_ids,
 )
-from tfmplayground.interface import TabularRegressor
+from tfmplayground.interface import TabularClassifier, TabularRegressor
 from tfmplayground.models.moddednanotabpfn import ModdedNanoTabPFNModel
 from tfmplayground.models.nanotabicl import NanoTabICLModel
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
@@ -65,11 +65,21 @@ class TinyPrior(Prior):
 @pytest.fixture
 def offline_openml(monkeypatch, tmp_path):
     rng = np.random.default_rng(0)
-    y_true = rng.integers(0, 3, size=30)
-    y_proba = rng.random((30, 3))
-    y_proba = y_proba / y_proba.sum(axis=1, keepdims=True)
-    predictions = {"toy": (y_true, y_proba.argmax(axis=1), y_proba)}
-    monkeypatch.setattr(callbacks_source, "get_openml_predictions", lambda **kwargs: predictions)
+    x_train = rng.standard_normal((24, 3))
+    x_test = rng.standard_normal((12, 3))
+    labels_train = np.tile([0, 1, 2], 8)
+    labels_test = np.tile([0, 1, 2], 4)
+    targets_train = rng.standard_normal(24)
+    targets_test = rng.standard_normal(12)
+
+    def predictions(model, **kwargs):
+        if isinstance(model, TabularClassifier):
+            model.fit(x_train, labels_train)
+            return {"toy": (labels_test, model.predict(x_test), model.predict_proba(x_test))}
+        model.fit(x_train, targets_train)
+        return {"toy": (targets_test, model.predict(x_test), None)}
+
+    monkeypatch.setattr(callbacks_source, "get_openml_predictions", predictions)
 
     class ExperimentInTmp(Experiment):
         def __init__(self, config):

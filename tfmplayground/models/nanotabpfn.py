@@ -6,7 +6,7 @@ from torch.nn.modules.transformer import LayerNorm, Linear, MultiheadAttention
 from tfmplayground.models.base import TabularFoundationModel
 
 
-class NanoTabPFNModel(TabularFoundationModel):
+class NanoTabPFN(nn.Module):
     def __init__(
         self,
         embedding_size: int,
@@ -15,13 +15,12 @@ class NanoTabPFNModel(TabularFoundationModel):
         num_layers: int,
         num_outputs: int,
     ):
-        """Initializes the feature/target encoder, transformer blocks and decoder"""
         super().__init__()
         self.embedding_size = embedding_size
         self.num_attention_heads = num_attention_heads
         self.mlp_hidden_size = mlp_hidden_size
         self.num_layers = num_layers
-        self.num_outputs = num_outputs  # one generic head, output_kind stays the regression one
+        self.num_outputs = num_outputs
         self.feature_encoder = FeatureEncoder(embedding_size)
         self.target_encoder = TargetEncoder(embedding_size)
         self.transformer_blocks = nn.ModuleList()
@@ -31,27 +30,8 @@ class NanoTabPFNModel(TabularFoundationModel):
             )
         self.decoder = Decoder(embedding_size, mlp_hidden_size, num_outputs)
 
-    def forward(
-        self,
-        X_train: torch.Tensor,
-        y_train: torch.Tensor,
-        X_test: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Predicts the outputs for X_test given the labelled (X_train, y_train) context.
-
-        Args:
-            X_train: (torch.Tensor) a tensor of shape (batch_size, num_train_datapoints, num_features)
-            y_train: (torch.Tensor) a tensor of shape (batch_size, num_train_datapoints, 1)
-            X_test: (torch.Tensor) a tensor of shape (batch_size, num_test_datapoints, num_features)
-
-        Returns:
-            (torch.Tensor) a tensor of shape (batch_size, num_test_datapoints, num_classes),
-                           which represent the predicted logits
-        """
-        train_test_split_index = y_train.shape[1]
-        x_src = torch.cat([X_train, X_test], dim=1)
-        y_src = y_train
+    def forward(self, src: tuple[torch.Tensor, torch.Tensor], train_test_split_index: int) -> torch.Tensor:
+        x_src, y_src = src
         # we expect the labels to look like (batches, num_train_datapoints, 1),
         # so we add the last dimension if it is missing
         if len(y_src.shape) < len(x_src.shape):
@@ -79,22 +59,10 @@ class NanoTabPFNModel(TabularFoundationModel):
 
 class FeatureEncoder(nn.Module):
     def __init__(self, embedding_size: int):
-        """Creates the linear layer that we will use to embed our features."""
         super().__init__()
         self.linear_layer = nn.Linear(1, embedding_size)
 
     def forward(self, x: torch.Tensor, train_test_split_index: int) -> torch.Tensor:
-        """
-        Normalizes all the features based on the mean and std of the features of the training data,
-        clips them between -100 and 100, then applies a linear layer to embed the features.
-
-        Args:
-            x: (torch.Tensor) a tensor of shape (batch_size, num_rows, num_features)
-            train_test_split_index: (int) the number of datapoints in X_train
-        Returns:
-            (torch.Tensor) a tensor of shape (batch_size, num_rows, num_features, embedding_size), representing
-                           the embeddings of the features
-        """
         x = x.unsqueeze(-1)
         mean = torch.mean(x[:, :train_test_split_index], dim=1, keepdims=True)
         std = torch.std(x[:, :train_test_split_index], dim=1, keepdims=True) + 1e-8  # TODO: maybe change the constant
@@ -105,21 +73,10 @@ class FeatureEncoder(nn.Module):
 
 class TargetEncoder(nn.Module):
     def __init__(self, embedding_size: int):
-        """Creates the linear layer that we will use to embed our targets."""
         super().__init__()
         self.linear_layer = nn.Linear(1, embedding_size)
 
     def forward(self, y_train: torch.Tensor, num_rows: int) -> torch.Tensor:
-        """
-        Pads up y_train to the full length of y using the mean per dataset and then embeds it using a linear layer
-
-        Args:
-            y_train: (torch.Tensor) a tensor of shape (batch_size, num_train_datapoints, 1)
-            num_rows: (int) the full length of y
-        Returns:
-            (torch.Tensor) a tensor of shape (batch_size, num_rows, 1, embedding_size), representing
-                           the embeddings of the targets
-        """
         # nan padding & nan handler instead?
         mean = torch.mean(y_train, axis=1, keepdim=True)
         padding = mean.repeat(1, num_rows - y_train.shape[1], 1)
@@ -129,10 +86,6 @@ class TargetEncoder(nn.Module):
 
 
 class TransformerEncoderLayer(nn.Module):
-    """
-    Modified version of older version of https://github.com/pytorch/pytorch/blob/v2.6.0/torch/nn/modules/transformer.py#L630
-    """
-
     def __init__(
         self,
         embedding_size: int,
@@ -159,17 +112,6 @@ class TransformerEncoderLayer(nn.Module):
         self.norm3 = LayerNorm(embedding_size, eps=layer_norm_eps, device=device, dtype=dtype)
 
     def forward(self, src: torch.Tensor, train_test_split_index: int) -> torch.Tensor:
-        """
-        Takes the embeddings of the table as input and applies self-attention between features
-        and self-attention between datapoints followed by a simple 2 layer MLP.
-
-        Args:
-            src: (torch.Tensor) a tensor of shape (batch_size, num_rows, num_features, embedding_size)
-                                that contains all the embeddings for all the cells in the table
-            train_test_split_index: (int) the length of X_train
-        Returns
-            (torch.Tensor) a tensor of shape (batch_size, num_rows, num_features, embedding_size)
-        """
         batch_size, rows_size, col_size, embedding_size = src.shape
         # attention between features
         src = src.reshape(batch_size * rows_size, col_size, embedding_size)
@@ -206,21 +148,29 @@ class TransformerEncoderLayer(nn.Module):
         return src
 
 
-
 class Decoder(nn.Module):
     def __init__(self, embedding_size: int, mlp_hidden_size: int, num_outputs: int):
-        """Initializes the linear layers for use in the forward"""
         super().__init__()
         self.linear1 = nn.Linear(embedding_size, mlp_hidden_size)
         self.linear2 = nn.Linear(mlp_hidden_size, num_outputs)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Applies an MLP to the embeddings to get the logits
-
-        Args:
-            x: (torch.Tensor) a tensor of shape (batch_size, num_rows, embedding_size)
-        Returns:
-            (torch.Tensor) a tensor of shape (batch_size, num_rows, num_outputs)
-        """
         return self.linear2(F.gelu(self.linear1(x)))
+
+
+class NanoTabPFNModel(NanoTabPFN, TabularFoundationModel):
+    def __init__(self, config):
+        self.config = config
+        super().__init__(
+            embedding_size=config.embedding_size,
+            num_attention_heads=config.num_attention_heads,
+            mlp_hidden_size=config.mlp_hidden_size,
+            num_layers=config.num_layers,
+            num_outputs=config.num_outputs,
+        )
+        self.register_buffer("borders", torch.zeros(config.num_outputs + 1))
+
+    def forward(self, X_train, y_train, X_test):
+        src = torch.cat([X_train, X_test], dim=1), y_train
+        train_test_split_index = y_train.shape[1]
+        return super().forward(src, train_test_split_index)

@@ -1,4 +1,4 @@
-# Vendored from https://github.com/soda-inria/nanotabicl (prior.py), adapted to the Prior contract.
+# Vendored from https://github.com/soda-inria/nanotabicl (prior.py) at 4a7f9c7
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # BSD 3-Clause License
@@ -30,84 +30,17 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np, torch, torch.nn.functional as F
+
 from typing import Any
+
+import numpy as np
+import torch
+import torch.nn.functional as F
 from numpy.random import randint
 from sklearn.ensemble import ExtraTreesRegressor
 
-from tfmplayground.priors.base import MAX_NUM_CLASSES, Batch, Prior
+from tfmplayground.priors.base import Prior
 from tfmplayground.utils import get_default_device
-
-
-class NanoTabICLPrior(Prior):
-    """
-    The prior nanotabicl trains on, sampled on the fly, nothing to download.
-
-    A cauchy weighted random graph decides which nodes feed which, every node runs its parents
-    through a random function drawn from linear, quadratic, gaussian process, tree, mlp and a few
-    more, and columns fall out of the nodes as either numerical or categorical. One column is the
-    target. By default every table is then held to an extra trees out of bag check and resampled
-    until it beats predicting the mean, which is what keeps unlearnable tables out.
-
-    The split follows our other priors: the last num_test_datapoints rows are the test half.
-
-    Args:
-        num_datapoints_max (int): rows per table, train and test together.
-        num_features (int): number of input features.
-        num_test_datapoints (int): rows held out per table, must be fewer than num_datapoints_max.
-        problem (str): "classification" or "regression".
-        max_num_classes (int): most classes a classification target is cut into, at least 2.
-        filtered (bool): keep the extra trees learnability check, which costs about 0.1s a table.
-        device (torch.device): device the batches end up on, defaults to the best available one.
-    """
-
-    def __init__(
-        self,
-        num_datapoints_max: int = 512,
-        num_features: int = 8,
-        num_test_datapoints: int = 128,
-        problem: str = "classification",
-        max_num_classes: int = MAX_NUM_CLASSES,
-        filtered: bool = True,
-        device: torch.device = None,
-    ):
-        if num_test_datapoints >= num_datapoints_max:
-            raise ValueError(
-                f"num_test_datapoints must be smaller than num_datapoints_max, "
-                f"got {num_test_datapoints} and {num_datapoints_max}"
-            )
-        if problem not in ("classification", "regression"):
-            raise ValueError(f"problem must be classification or regression, got {problem!r}")
-        if problem == "classification" and max_num_classes < 2:
-            raise ValueError(f"max_num_classes must be at least 2, got {max_num_classes}")
-        self.num_datapoints_max = num_datapoints_max
-        self.num_features = num_features
-        self.num_test_datapoints = num_test_datapoints
-        self.filtered = filtered
-        self.device = device if device is not None else get_default_device()
-        self.problem_type = problem
-        self.max_num_classes = max_num_classes if problem == "classification" else None
-        self.sep = num_datapoints_max - num_test_datapoints
-
-    def num_classes(self) -> int:
-        # upstream draws binary half the time and spreads the rest over the remaining counts
-        if self.max_num_classes == 2 or np.random.rand() < 0.5:
-            return 2
-        return int(np.random.randint(3, self.max_num_classes + 1))
-
-    def table(self, y_cat_sizes: list[int]) -> tuple[torch.Tensor, torch.Tensor]:
-        sample = rand_dataset_filtered if self.filtered else rand_dataset_plain
-        columns = sample(rand_cat_sizes(self.num_features), y_cat_sizes, self.num_datapoints_max)
-        x = torch.cat([columns[f"x_{i}"] for i in range(self.num_features)], dim=-1)
-        return x.float(), columns["y_0"].squeeze(-1).float()
-
-    def batch(self, batch_size: int) -> Batch:
-        y_cat_sizes = [self.num_classes() if self.problem_type == "classification" else 0]
-        tables = [self.table(y_cat_sizes) for _ in range(batch_size)]
-        x = torch.stack([table[0] for table in tables]).to(self.device)
-        y = torch.stack([table[1] for table in tables]).to(self.device)
-        return x[:, : self.sep], y[:, : self.sep], x[:, self.sep :], y[:, self.sep :]
-
 
 # ----- Dataset sampling -----
 
@@ -430,3 +363,42 @@ def rand_weights(n_batch: int, n: int) -> torch.Tensor:
     logits = log_weights + std_scale[:, None] * torch.randn(n_batch, n)
     logits = torch.stack([logits[i, torch.randperm(n)] for i in range(n_batch)], dim=0)  # no batch randperm available
     return np.sqrt(n) * row_normalize(torch.softmax(logits, dim=-1))
+
+
+class NanoTabICLPrior(Prior):
+    def __init__(self, config, device=None):
+        self.config = config
+        self.device = device if device is not None else get_default_device()
+        if not 0 < self.config.train_fraction_min <= self.config.train_fraction_max < 1:
+            raise ValueError("the train fractions must obey 0 < min <= max < 1")
+
+    def hyperparameters(self):
+        c = self.config
+        self.num_features = c.num_features
+        self.num_datapoints_max = c.num_datapoints_max
+        fraction = np.random.uniform(c.train_fraction_min, c.train_fraction_max)
+        self.sep = int(c.num_datapoints_max * fraction)
+        if c.problem == "regression":
+            self.num_classes = 0
+        else:
+            binary = c.max_num_classes == 2 or np.random.rand() < 0.5
+            self.num_classes = 2 if binary else int(np.random.randint(3, c.max_num_classes + 1))
+
+    def target(self, columns):
+        x = torch.cat([columns[f"x_{i}"] for i in range(self.num_features)], dim=-1)
+        y = columns["y_0"].squeeze(-1)
+        return x.float(), y.float()
+
+    def dataset(self):
+        cat_sizes = rand_cat_sizes(self.num_features)
+        columns = rand_dataset_filtered(cat_sizes, [self.num_classes], self.num_datapoints_max)
+        x, y = self.target(columns)
+        return x, y
+
+    def batch(self, batch_size):
+        self.hyperparameters()
+        datasets = [self.dataset() for _ in range(batch_size)]
+        x = torch.stack([d[0] for d in datasets]).to(self.device)
+        y = torch.stack([d[1] for d in datasets]).to(self.device)
+        sep = self.sep
+        return x[:, :sep], y[:, :sep], x[:, sep:], y[:, sep:]

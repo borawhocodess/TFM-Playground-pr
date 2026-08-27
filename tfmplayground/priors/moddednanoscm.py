@@ -1,50 +1,14 @@
-# Vendored from https://github.com/borawhocodess/modded-nanotabpfn (train_prior.py),
-# adapted to the Prior contract. Modified from the original.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Copyright 2026 Salih Bora Ozturk
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-from dataclasses import dataclass
+# Vendored from https://github.com/borawhocodess/modded-nanotabpfn (train_prior.py) at 6671842
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from tfmplayground.priors.base import Batch, Prior
+from tfmplayground.priors.base import Prior
 from tfmplayground.utils import get_default_device
 
-# ----- vendored, do not edit: keep it identical to upstream so updates can be pulled straight in
 
-
-@dataclass
-class PriorConfig:
-    min_num_classes: int = 2
-    max_num_classes: int = 8
-    min_num_cols: int = 20
-    max_num_cols: int = 20
-    min_num_parent_attempts: int = 3
-    max_num_parent_attempts: int = 3
-    min_redirection: float = 0.5
-    max_redirection: float = 0.5
-    min_num_rows: int = 1000
-    max_num_rows: int = 1000
-    min_num_test_rows: int = 128
-    max_num_test_rows: int = 128
-
-
-class ModdedNanoPriorUpstream:
+class ModdedNanoPrior:
     activations = (lambda z: z, torch.tanh, torch.sin, torch.abs, torch.square, F.softplus)
 
     def __init__(self, config, device):
@@ -115,34 +79,7 @@ class ModdedNanoPriorUpstream:
         return x[:, :sep], y[:, :sep], x[:, sep:], y[:, sep:]
 
 
-# ----- ours: the adapter onto the Prior contract
-
-
-class ModdedNanoPrior(ModdedNanoPriorUpstream, Prior):
-    """
-    The prior the modded nanotabpfn speedrun trains on, sampled on the fly, nothing to download.
-
-    A growing network with redirection gives every node its parents, a random activation maps each
-    node's parent sum plus a little of its own noise, and one node is bucketized into classes to
-    become the target. Classification only, the target is quantile cut by construction.
-
-    The sampling above is upstream's, unedited, so a newer version can be pasted over it. This
-    class only adds what the Prior contract needs: a device, the problem it sits on, and the class
-    cap. Settings come from PriorConfig, the same dataclass upstream uses.
-
-    Args:
-        config (PriorConfig): the upstream settings, defaults to upstream's own defaults.
-        device (torch.device): device the batches end up on, defaults to the best available one.
-    """
-
-    def __init__(self, config: PriorConfig = None, device: torch.device = None):
-        config = config if config is not None else PriorConfig()
+class ModdedNanoSCMPrior(ModdedNanoPrior, Prior):
+    def __init__(self, config, device=None):
         device = device if device is not None else get_default_device()
         super().__init__(config, device)
-        self.problem_type = "classification"
-        self.max_num_classes = config.max_num_classes
-        self.num_features = config.max_num_cols
-        self.num_datapoints_max = config.max_num_rows
-
-    def batch(self, batch_size: int) -> Batch:
-        return super().batch(batch_size)

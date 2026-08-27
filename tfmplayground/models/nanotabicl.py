@@ -1,4 +1,4 @@
-# Vendored from https://github.com/soda-inria/nanotabicl, adapted to TabularFoundationModel.
+# Vendored from https://github.com/soda-inria/nanotabicl (model.py) at 4a7f9c7
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # BSD 3-Clause License
@@ -30,35 +30,22 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import typing, math, torch, torch.nn as nn
+import math
+import typing
+
+import torch
+import torch.nn as nn
 
 from tfmplayground.models.base import TabularFoundationModel
 
 
-class NanoTabICLv2(TabularFoundationModel):
-    def __init__(
-        self,
-        max_classes: int,
-        out_dim: int,
-        embed_dim: int = 128,
-        col_num_blocks: int = 3,
-        row_num_blocks: int = 3,
-        icl_num_blocks: int = 12,
-        col_nhead: int = 8,
-        row_nhead: int = 8,
-        icl_nhead: int = 8,
-        feature_group_size: int = 3,
-        n_cls_cols: int = 4,
-        n_cls_rows: int = 128,
-    ):
+class NanoTabICLv2(nn.Module):
+    def __init__(self, max_classes: int, out_dim: int, embed_dim: int = 128,
+                 col_num_blocks: int = 3, row_num_blocks: int = 3, icl_num_blocks: int = 12,
+                 col_nhead: int = 8, row_nhead: int = 8, icl_nhead: int = 8,
+                 feature_group_size: int = 3, n_cls_cols: int = 4, n_cls_rows: int = 128):
         # classification: max_classes = out_dim (= 10 typically); regression: max_classes = 0, out_dim = n_quantiles
         super().__init__()
-        # the y encoder below is a class lookup above 0 and a linear layer at 0, so the same
-        # constructor argument decides which problem this instance can take at all
-        problem = "classification" if max_classes > 0 else "regression"
-        self.problems = (problem,)
-        self.output_kinds = {problem: "class_logits" if max_classes > 0 else "quantiles"}
-        self.num_outputs = out_dim
         self.feature_group_size = feature_group_size
         icl_dim = embed_dim * n_cls_cols
 
@@ -66,36 +53,27 @@ class NanoTabICLv2(TabularFoundationModel):
         self.y_embed_in = ClassEmbedding(max_classes, embed_dim) if max_classes > 0 else nn.Linear(1, embed_dim)
         self.y_embed_icl = ClassEmbedding(max_classes, icl_dim) if max_classes > 0 else nn.Linear(1, icl_dim)
 
-        self.col_blocks = nn.ModuleList(
-            [
-                InducedTransformerBlock(embed_dim=embed_dim, num_heads=col_nhead, n_inducing=n_cls_rows, ssmax=True)
-                for _ in range(col_num_blocks)
-            ]
-        )
-        self.row_blocks = nn.ModuleList(
-            [TransformerBlock(embed_dim=embed_dim, num_heads=row_nhead, use_rope=True) for _ in range(row_num_blocks)]
-        )
-        self.icl_blocks = nn.ModuleList(
-            [TransformerBlock(embed_dim=icl_dim, num_heads=icl_nhead, ssmax=True) for _ in range(icl_num_blocks)]
-        )
+        self.col_blocks = nn.ModuleList([
+            InducedTransformerBlock(embed_dim=embed_dim, num_heads=col_nhead, n_inducing=n_cls_rows, ssmax=True)
+            for _ in range(col_num_blocks)])
+        self.row_blocks = nn.ModuleList([
+            TransformerBlock(embed_dim=embed_dim, num_heads=row_nhead, use_rope=True) for _ in range(row_num_blocks)])
+        self.icl_blocks = nn.ModuleList([
+            TransformerBlock(embed_dim=icl_dim, num_heads=icl_nhead, ssmax=True) for _ in range(icl_num_blocks)])
 
         self.row_cls_tokens = nn.Parameter(0.02 * torch.randn(1, 1, n_cls_cols, embed_dim))
         self.row_ln = nn.LayerNorm(embed_dim)
         self.out_ln = nn.LayerNorm(icl_dim)
         self.out_mlp = get_mlp(icl_dim, icl_dim * 2, out_dim)
 
-    def forward(self, X_train: torch.Tensor, y_train: torch.Tensor, X_test: torch.Tensor) -> torch.Tensor:
-        x = torch.cat([X_train, X_test], dim=1)
-        y = y_train
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         n_batch, n_rows, n_cols = x.shape
         n_batch, n_train = y.shape
 
         # ----- Embedding: standardize -> repeated feature grouping -> x embedding -> add y embedding to train
-        x = (x - x[:, :n_train].mean(dim=1, keepdim=True)) / (
-            x[:, :n_train].std(dim=1, unbiased=False, keepdim=True) + 1e-8
-        )
+        x = (x - x[:, :n_train].mean(dim=1, keepdim=True)) / (x[:, :n_train].std(dim=1, unbiased=False, keepdim=True) + 1e-8)
         idxs = torch.arange(n_cols, dtype=torch.long, device=x.device)
-        x = torch.stack([x[:, :, (idxs + (2**i - 1)) % n_cols] for i in range(self.feature_group_size)], dim=-1)
+        x = torch.stack([x[:, :, (idxs + (2 ** i - 1)) % n_cols] for i in range(self.feature_group_size)], dim=-1)
         emb = self.x_embed(x)  # emb.shape = (n_batch, n_rows, n_cols, embed_dim)
         emb[:, :n_train] += self.y_embed_in(y[:, :, None, None])
 
@@ -107,9 +85,7 @@ class NanoTabICLv2(TabularFoundationModel):
         emb = torch.cat([self.row_cls_tokens.expand(n_batch, n_rows, -1, -1), emb], dim=2)
         for block in self.row_blocks[:-1]:
             emb = block.row_attn(emb)
-        emb = self.row_blocks[-1].row_attn(
-            emb, q_max_idx=self.row_cls_tokens.size(-2)
-        )  # need only the cls token values
+        emb = self.row_blocks[-1].row_attn(emb, q_max_idx=self.row_cls_tokens.size(-2))  # need only the cls token values
         emb = self.row_ln(emb).flatten(-2, -1)  # norm + merge cls tokens into one bigger token
 
         # ----- TF_icl: add y embedding -> self-attention
@@ -122,12 +98,9 @@ class NanoTabICLv2(TabularFoundationModel):
         return self.out_mlp(self.out_ln(emb))  # output MLP
 
 
-class ClassEmbedding(nn.Embedding):
-    def reset_parameters(self) -> None:  # change init to match one-hot + linear
-        nn.init.uniform_(self.weight, -1 / math.sqrt(self.num_embeddings), 1 / math.sqrt(self.num_embeddings))
-
-    def forward(self, y: torch.Tensor) -> torch.Tensor:
-        return super().forward(y.squeeze(-1).long())
+class ClassEmbedding(nn.Linear):
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        return super().forward(torch.nn.functional.one_hot(input.squeeze(-1), self.in_features).float())
 
 
 def get_mlp(n_in: int, n_hidden: int, n_out: int):
@@ -170,10 +143,8 @@ class TransformerBlock(nn.MultiheadAttention, TableAttnBase):
         # q.shape: (batch_size, q_len, embed_dim), kv.shape: (batch_size, kv_len, embed_dim)
         x, q = q, self.ln_attn(q)
         kv = q if kv is None else self.ln_attn(kv)
-        if kv_max_idx is not None:
-            kv = kv[..., :kv_max_idx, :]
-        if q_max_idx is not None:
-            x, q = x[..., :q_max_idx, :], q[..., :q_max_idx, :]
+        if kv_max_idx is not None: kv = kv[..., :kv_max_idx, :]
+        if q_max_idx is not None: x, q = x[..., :q_max_idx, :], q[..., :q_max_idx, :]
 
         x = x + self.attn(q, kv)
         del q, kv  # save memory during inference
@@ -211,7 +182,7 @@ class Rope(nn.Module):  # rotary positional encoding
             self.sin, self.cos = angles.sin(), angles.cos()  # (seq_len, half_head_dim)
 
         sin, cos = self.sin[:seq_len], self.cos[:seq_len]
-        x1, x2 = x[..., : self.half], x[..., self.half :]  # (batch_size, num_heads, seq_len, half_head_dim)
+        x1, x2 = x[..., :self.half], x[..., self.half:]  # (batch_size, num_heads, seq_len, half_head_dim)
         return torch.cat([x1 * cos - x2 * sin, x1 * sin + x2 * cos], dim=-1).to(x.dtype)
 
 
@@ -227,3 +198,30 @@ class QASSMax(nn.Module):  # query-aware scalable softmax for better context len
         batch_size, num_heads, seq_len, head_dim = q.shape
         logn = q.new_tensor(math.log(max(1, n))).view(1, 1)
         return self.base_mlp(logn).view(1, num_heads, 1, head_dim) * (1 + torch.tanh(self.query_mlp(q))) * q
+
+
+class NanoTabICLModel(NanoTabICLv2, TabularFoundationModel):
+    def __init__(self, config):
+        self.config = config
+        super().__init__(
+            max_classes=config.max_classes,
+            out_dim=config.out_dim,
+            embed_dim=config.embed_dim,
+            col_num_blocks=config.col_num_blocks,
+            row_num_blocks=config.row_num_blocks,
+            icl_num_blocks=config.icl_num_blocks,
+            col_nhead=config.col_nhead,
+            row_nhead=config.row_nhead,
+            icl_nhead=config.icl_nhead,
+            feature_group_size=config.feature_group_size,
+            n_cls_cols=config.n_cls_cols,
+            n_cls_rows=config.n_cls_rows,
+        )
+        self.register_buffer("borders", torch.zeros(config.out_dim + 1))
+
+    def forward(self, X_train, y_train, X_test):
+        x = torch.cat([X_train, X_test], dim=1)
+        y = y_train
+        if isinstance(self.y_embed_in, ClassEmbedding):  # if classification
+            y = y.long()  # turn float prior targets to int
+        return super().forward(x, y)

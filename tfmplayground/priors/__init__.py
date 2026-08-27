@@ -1,30 +1,23 @@
-"""Priors, and the loader that streams batches off them."""
-
-from tfmplayground.priors.base import (
-    MAX_NUM_CLASSES,
-    Batch,
-    DictPrior,
-    FunctionPrior,
-    Prior,
-    PriorDataLoader,
-)
-from tfmplayground.priors.dump import DumpPrior, dump_prior_to_h5
-from tfmplayground.priors.modded import ModdedNanoPrior, PriorConfig
-from tfmplayground.priors.nanotabicl import NanoTabICLPrior
-from tfmplayground.priors.scm import SCMPrior, get_batch
+from .base import DictPrior, Prior, PriorDataLoader
+from .dump import DumpPrior, PriorDumpDataLoader
+from .moddednanoscm import ModdedNanoSCMPrior
+from .nanotabicl import NanoTabICLPrior
+from .tabicl import TabICLPrior, TabICLPriorDataLoader
+from .tabpfn import TabPFNPriorDataLoader, build_tabpfn_prior
+from .ticl import TICLPriorDataLoader, build_ticl_prior
 
 __all__ = [
-    "MAX_NUM_CLASSES",
-    "Batch",
-    "DictPrior",
-    "DumpPrior",
-    "FunctionPrior",
-    "ModdedNanoPrior",
-    "NanoTabICLPrior",
     "Prior",
-    "PriorConfig",
+    "DictPrior",
     "PriorDataLoader",
-    "SCMPrior",
-    "dump_prior_to_h5",
-    "get_batch",
+    "DumpPrior",
+    "PriorDumpDataLoader",
+    "ModdedNanoSCMPrior",
+    "NanoTabICLPrior",
+    "TabICLPrior",
+    "TabICLPriorDataLoader",
+    "TICLPriorDataLoader",
+    "TabPFNPriorDataLoader",
+    "build_ticl_prior",
+    "build_tabpfn_prior",
 ]

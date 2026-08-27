@@ -1,21 +1,4 @@
-# Vendored from https://github.com/borawhocodess/modded-nanotabpfn (train_nano.py),
-# adapted to TabularFoundationModel. Modified from the original.
-# Derived from https://github.com/automl/nanoTabPFN.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Copyright 2026 Salih Bora Ozturk
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Vendored from https://github.com/borawhocodess/modded-nanotabpfn (train_nano.py) at 6671842
 
 import torch
 import torch.nn.functional as F
@@ -25,6 +8,9 @@ from tfmplayground.models.base import TabularFoundationModel
 
 
 class LowerPrecisionRMSNorm(nn.RMSNorm):
+    """
+    code adapted from: https://github.com/PriorLabs/TabPFN/blob/main/src/tabpfn/architectures/tabpfn_v2_6.py
+    """
     def forward(self, x):
         if x.dtype in (torch.float16, torch.bfloat16):
             with torch.amp.autocast("cuda", enabled=False):
@@ -33,6 +19,9 @@ class LowerPrecisionRMSNorm(nn.RMSNorm):
 
 
 class ThinkingRows(nn.Module):
+    """
+    code adapted from: https://github.com/PriorLabs/TabPFN/blob/main/src/tabpfn/architectures/tabpfn_v2_6.py
+    """
     def __init__(self, num_thinking_rows: int, e: int):
         super().__init__()
         self.num_thinking_rows = num_thinking_rows
@@ -47,25 +36,45 @@ class ThinkingRows(nn.Module):
         return x, sep
 
 
-class ModdedNanoTabPFNModel(TabularFoundationModel):
+# -----------------------------------------------------------------------------
+# model
+
+
+class ModdedNanoTabPFN(nn.Module):
     def __init__(self, l, a, e, h, o, residual_decay=1.0, thinking_rows=16, feature_group_size=3):
+        """
+        l : num layers
+        a : num attention heads
+        e : embedding size
+        h : mlp hidden size
+        o : num outputs
+        residual_decay : exponential decay of residual stream per layer (1.0 = no decay)
+        """
         super().__init__()
         self.l = l
         self.a = a
         self.e = e
         self.h = h
         self.o = o
-        self.num_outputs = o
         self.feature_encoder = FeatureEncoder(e, feature_group_size=feature_group_size)
         self.target_encoder = TargetEncoder(e)
         self.transformer_encoder = TransformerEncoderStack(l, a, e, h, residual_decay=residual_decay)
         self.decoder = Decoder(e, h, o)
         self.thinking_rows = ThinkingRows(num_thinking_rows=thinking_rows, e=e)
 
-    def forward(self, X_train: torch.Tensor, y_train: torch.Tensor, X_test: torch.Tensor) -> torch.Tensor:
-        sep = X_train.shape[1]
-        x_src = torch.cat([X_train, X_test], dim=1)
-        y_src = y_train
+        self.register_buffer("borders", None, persistent=True)
+
+    def forward(self, *args, **kwargs):
+        if len(args) == 3:
+            x = args[0]
+            if args[2] is not None:
+                x = torch.cat((x, args[2]), dim=1)
+            return self._forward((x, args[1]), sep=args[0].shape[1], **kwargs)
+        elif len(args) == 1 and isinstance(args[0], tuple):
+            return self._forward(*args, **kwargs)
+
+    def _forward(self, src, sep):
+        x_src, y_src = src
         if len(y_src.shape) < len(x_src.shape):
             y_src = y_src.unsqueeze(-1)
         x_src = self.feature_encoder(x_src, sep)
@@ -88,7 +97,7 @@ class FeatureEncoder(nn.Module):
     def forward(self, x, sep):
         n_cols = x.shape[-1]
         idxs = torch.arange(n_cols, dtype=torch.long, device=x.device)
-        x = torch.stack([x[:, :, (idxs + (2**i - 1)) % n_cols] for i in range(self.feature_group_size)], dim=-1)
+        x = torch.stack([x[:, :, (idxs + (2 ** i - 1)) % n_cols] for i in range(self.feature_group_size)], dim=-1)
         mean = x[:, :sep].mean(dim=1, keepdim=True)
         std = x[:, :sep].std(dim=1, keepdim=True) + 1e-8
         x = (x - mean) / std
@@ -119,7 +128,7 @@ class TransformerEncoderStack(nn.Module):
 
     def forward(self, x, sep):
         for i, block in enumerate(self.transformer_blocks):
-            x = x * (self.residual_decay**i)
+            x = x * (self.residual_decay ** i)
             x = block(x, sep=sep)
         return x
 
@@ -141,6 +150,7 @@ class TransformerEncoderLayer(nn.Module):
         self.norm2 = LowerPrecisionRMSNorm(e, eps=eps)
         self.norm3 = LowerPrecisionRMSNorm(e, eps=eps)
 
+    @torch.compile(dynamic=True)
     def forward(self, src, sep):
         b, r, c, e = src.shape
 
@@ -197,3 +207,22 @@ class Decoder(nn.Module):
 
     def forward(self, x):
         return self.linear2(F.gelu(self.linear1(x)))
+
+
+class ModdedNanoTabPFNModel(ModdedNanoTabPFN, TabularFoundationModel):
+    def __init__(self, config):
+        self.config = config
+        super().__init__(
+            l=config.l,
+            a=config.a,
+            e=config.e,
+            h=config.h,
+            o=config.o,
+            residual_decay=config.residual_decay,
+            thinking_rows=config.thinking_rows,
+            feature_group_size=config.feature_group_size,
+        )
+        self.register_buffer("borders", torch.zeros(config.o + 1))
+
+    def forward(self, X_train, y_train, X_test):
+        return super().forward(X_train, y_train, X_test)

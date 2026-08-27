@@ -27,6 +27,7 @@ dependencies = [
     "openml==0.15.1",
     "pandas",
     "tqdm",
+    "tabfm[pytorch]==1.0.1",
     "tabicl[pretrain] @ git+https://github.com/soda-inria/tabicl.git@8f1aa2098c894ab91dba15209cf2002ba4be6c6c",
     "ticl @ git+https://github.com/microsoft/ticl.git@main",
     "tabpfn-v1-prior @ git+https://github.com/automl/tabpfn-v1-prior.git",
@@ -62,31 +63,24 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tfmplayground/models/nanotabfm.py" = [
-    "F401",   # unused import
-    "UP006",  # non-pep585 annotation
-    "UP035",  # deprecated import
-    "SIM108", # if-else block instead of if-exp
-]
 "tfmplayground/models/nanotabicl.py" = [
-    "E401",  # multiple imports on one line
-    "I001",  # unsorted imports
+    "E501",  # line too long
+    "E701",  # multiple statements on one line
     "UP045", # non-pep604 annotation optional
 ]
 "tfmplayground/priors/nanotabicl.py" = [
     "B905",  # zip without an explicit strict
-    "E401",  # multiple imports on one line
     "E501",  # line too long
-    "I001",  # unsorted imports
-]
-"tfmplayground/priors/scm.py" = [
-    "E501", # line too long
 ]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-exclude = ["tfmplayground/models/nanotabfm.py"]
+exclude = [
+    "tfmplayground/models/moddednanotabpfn.py",
+    "tfmplayground/models/nanotabicl.py",
+    "tfmplayground/priors/nanotabicl.py",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

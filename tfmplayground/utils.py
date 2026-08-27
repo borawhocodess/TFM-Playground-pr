@@ -167,7 +167,7 @@ class Experiment:
         self.best_checkpoint_path = self.dir / f"{self.id}-ckpt-best.pth"
         self.last_checkpoint_path = self.dir / f"{self.id}-ckpt-last.pth"
 
-    def save_checkpoint(self, path, model, optimizer, epoch, prior):
+    def save_checkpoint(self, path, model):
         checkpoint = {
             "version": version("tfmplayground"),
             "experiment_id": self.id,
@@ -176,25 +176,17 @@ class Experiment:
             "config_class": type(model.config).__name__,
             "model_config": asdict(model.config),
             "model_state": model.state_dict(),
-            "epoch": epoch,
-            "optimizer_state": optimizer.state_dict(),
-            "prior_pointer": getattr(prior, "pointer", None),
-            "random_state": {
-                "python": random.getstate(),
-                "numpy": np.random.get_state(),
-                "torch": torch.get_rng_state(),
-            },
         }
         temporary_path = path.with_suffix(".tmp")
         torch.save(checkpoint, temporary_path)
         os.replace(temporary_path, path)
 
-    def save_checkpoints(self, model, optimizer, epoch, prior):
-        self.save_checkpoint(self.last_checkpoint_path, model, optimizer, epoch, prior)
+    def save_checkpoints(self, model):
+        self.save_checkpoint(self.last_checkpoint_path, model)
         if self.score is not None and math.isfinite(self.score):
             if self.best_score is None or self.score > self.best_score:
                 self.best_score = self.score
-                self.save_checkpoint(self.best_checkpoint_path, model, optimizer, epoch, prior)
+                self.save_checkpoint(self.best_checkpoint_path, model)
 
     def print0(self, s, console=False):
         with open(self.log_path, "a") as f:

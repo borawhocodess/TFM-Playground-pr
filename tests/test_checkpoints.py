@@ -2,7 +2,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import schedulefree
 import torch
 from pfns.bar_distribution import FullSupportBarDistribution
 from torch import nn
@@ -50,10 +49,6 @@ def small(outputs):
 
 def model():
     return NanoTabPFNModel(config=NanoTabPFNClassifierConfig(**small(3)))
-
-
-def optimizer(model):
-    return schedulefree.AdamWScheduleFree(model.parameters(), lr=1e-4)
 
 
 def only(tmp_path, kind):
@@ -106,11 +101,6 @@ def test_no_path_writes_nothing(tmp_path):
     assert list(tmp_path.rglob("*.pth")) == []
 
 
-def test_last_keeps_the_final_epoch(tmp_path):
-    run(tmp_path, epochs=3)
-    assert read(tmp_path, "last")["epoch"] == 3
-
-
 def test_the_file_carries_what_rebuilds_the_model(tmp_path):
     trained, _ = run(tmp_path)
     checkpoint = read(tmp_path, "last")
@@ -124,20 +114,25 @@ def test_the_file_carries_what_rebuilds_the_model(tmp_path):
 def test_the_file_names_its_run_and_version(tmp_path):
     run_experiment = experiment(tmp_path)
     saved = model()
-    run_experiment.save_checkpoint(run_experiment.last_checkpoint_path, saved, optimizer(saved), 1, None)
+    run_experiment.save_checkpoint(run_experiment.last_checkpoint_path, saved)
     checkpoint = read(tmp_path, "last")
     assert checkpoint["experiment_id"] == run_experiment.id
     assert checkpoint["version"]
     assert checkpoint["problem"] == "classification"
 
 
-def test_both_files_hold_the_run_state(tmp_path):
+def test_the_file_holds_the_model_only(tmp_path):
     run(tmp_path, [0.1, 0.2], epochs=2)
     for kind in ("best", "last"):
-        checkpoint = read(tmp_path, kind)
-        assert checkpoint["optimizer_state"]["state"] is not None
-        assert set(checkpoint["random_state"]) == {"python", "numpy", "torch"}
-        assert "prior_pointer" in checkpoint
+        assert set(read(tmp_path, kind)) == {
+            "version",
+            "experiment_id",
+            "problem",
+            "model_class",
+            "config_class",
+            "model_config",
+            "model_state",
+        }
 
 
 def test_the_loaded_model_matches_the_trained_one(tmp_path):
@@ -153,7 +148,7 @@ def test_the_loaded_borders_come_back_fitted(tmp_path):
     run_experiment = experiment(tmp_path)
     saved = NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(9)))
     saved.borders = torch.linspace(-3, 3, 10)
-    run_experiment.save_checkpoint(run_experiment.last_checkpoint_path, saved, optimizer(saved), 1, None)
+    run_experiment.save_checkpoint(run_experiment.last_checkpoint_path, saved)
     loaded = load_model(only(tmp_path, "last"))
     assert torch.equal(loaded.borders, saved.borders)
     assert isinstance(TabularRegressor(loaded, device="cpu").dist, FullSupportBarDistribution)
@@ -184,7 +179,7 @@ def test_a_loaded_regressor_predicts_without_anything_else(tmp_path):
 def test_a_regression_file_names_its_own_problem(tmp_path):
     run_experiment = experiment(tmp_path)
     saved = NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(9)))
-    run_experiment.save_checkpoint(run_experiment.last_checkpoint_path, saved, optimizer(saved), 1, None)
+    run_experiment.save_checkpoint(run_experiment.last_checkpoint_path, saved)
     assert read(tmp_path, "last")["problem"] == "regression"
 
 
@@ -201,7 +196,7 @@ def test_a_failed_write_leaves_the_old_file_whole(tmp_path, monkeypatch):
 
     monkeypatch.setattr(torch, "save", half_write)
     with pytest.raises(OSError):
-        run_experiment.save_checkpoint(target, saved, optimizer(saved), 2, None)
+        run_experiment.save_checkpoint(target, saved)
     assert target.read_bytes() == good
 
 
@@ -209,8 +204,8 @@ def test_a_score_that_is_not_finite_never_becomes_best(tmp_path):
     run_experiment = experiment(tmp_path)
     saved = model()
     run_experiment.score = float("nan")
-    run_experiment.save_checkpoints(saved, optimizer(saved), 1, None)
+    run_experiment.save_checkpoints(saved)
     assert not run_experiment.best_checkpoint_path.exists()
     run_experiment.score = 0.5
-    run_experiment.save_checkpoints(saved, optimizer(saved), 2, None)
+    run_experiment.save_checkpoints(saved)
     assert run_experiment.best_score == 0.5

@@ -96,7 +96,7 @@ def train(
                 callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, model)
 
             if experiment is not None:
-                experiment.save_checkpoints(model, optimizer, epoch, prior)
+                experiment.save_checkpoints(model)
     except KeyboardInterrupt:
         pass
     finally:

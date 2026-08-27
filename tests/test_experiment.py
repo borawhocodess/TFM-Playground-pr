@@ -1,5 +1,3 @@
-import schedulefree
-
 from tfmplayground.configs.models import NanoTabPFNClassifierConfig
 from tfmplayground.configs.training import ClassificationExperimentConfig, RegressionExperimentConfig
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
@@ -128,7 +126,7 @@ def test_the_run_keeps_no_best_score_before_it_starts(tmp_path):
 def improves(experiment, model, score):
     before = experiment.best_checkpoint_path.stat().st_mtime_ns if experiment.best_checkpoint_path.exists() else None
     experiment.score = score
-    experiment.save_checkpoints(model, schedulefree.AdamWScheduleFree(model.parameters(), lr=1e-4), 1, None)
+    experiment.save_checkpoints(model)
     after = experiment.best_checkpoint_path.stat().st_mtime_ns if experiment.best_checkpoint_path.exists() else None
     return before != after
 

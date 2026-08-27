@@ -28,6 +28,7 @@ def train(
     if not device:
         device = get_default_device()
     model.to(device)
+    criterion = criterion.to(device)
     optimizer = schedulefree.AdamWScheduleFree(model.parameters(), lr=lr, weight_decay=0.0)
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
@@ -54,13 +55,20 @@ def train(
                     y_std = y_train.std(dim=1, keepdim=True) + 1e-8
                     y_train = (y_train - y_mean) / y_std
                     y_test = (y_test - y_mean) / y_std
+                    if not torch.isfinite(y_train).all() or not torch.isfinite(y_test).all():
+                        continue
 
                 output = model(x_train, y_train, x_test)
+                if not torch.isfinite(output).all():
+                    continue
                 if classification_task:
                     y_test = y_test.reshape((-1,)).to(torch.long)
                     output = output.reshape(-1, output.shape[-1])
 
                 losses = criterion(output, y_test)
+                if not torch.isfinite(losses).all():
+                    continue
+
                 loss = losses.mean()
                 loss.backward()
                 total_loss += loss.cpu().detach().item()
@@ -95,4 +103,4 @@ def train(
         for callback in callbacks:
             callback.close()
 
-    return model, total_loss
+    return model, mean_loss

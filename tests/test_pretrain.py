@@ -196,3 +196,10 @@ def test_the_bare_regression_call_needs_no_borders(tmp_path, offline_openml, mon
     model = pretrainTFM(problem="regression")
     assert isinstance(model, TabICLModel)
     assert isinstance(seen["criterion"], QuantileLoss)
+
+
+def test_the_readme_import_works():
+    import tfmplayground
+
+    assert tfmplayground.pretrainTFM is pretrainTFM
+    assert set(tfmplayground.__all__) == {"TabularClassifier", "TabularRegressor", "pretrainTFM"}

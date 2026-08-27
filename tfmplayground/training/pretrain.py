@@ -62,6 +62,16 @@ def default_callback(problem, experiment, config, device):
         return RegressorExperimentEvaluationCallback(experiment, config=config, device=device)
 
 
+def check_problems(problem, model, prior, training):
+    if problem not in ("classification", "regression"):
+        raise ValueError(f"the problem must be classification or regression, not {problem!r}")
+    for x in (model, prior, training):
+        x_config = getattr(x, "config", x)
+        x_problem = getattr(x_config, "problem", None)
+        if x_problem is not None and x_problem != problem:
+            raise ValueError(f"{type(x).__name__} is built for {x_problem}, not {problem}")
+
+
 def default_criterion(problem, model, prior, training, device):
     if problem == "classification":
         return nn.CrossEntropyLoss()
@@ -83,8 +93,7 @@ def default_criterion(problem, model, prior, training, device):
 
 
 def pretrainTFM(problem, model=None, prior=None, eval=None, training=None):
-    if problem not in ("classification", "regression"):
-        raise ValueError(f"the problem must be classification or regression, not {problem!r}")
+    check_problems(problem, model, prior, training)
 
     experiment = default_experiment(problem)
 

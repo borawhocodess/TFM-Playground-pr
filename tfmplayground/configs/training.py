@@ -13,11 +13,12 @@ class TrainingConfig:
 
 @dataclass
 class ClassificationTrainingConfig(TrainingConfig):
-    pass
+    problem: str = "classification"
 
 
 @dataclass
 class RegressionTrainingConfig(TrainingConfig):
+    problem: str = "regression"
     criterion: str | None = None
     bucket_borders_min_targets: int = 1_000_000
     bucket_borders_outlier_threshold: float = 10.0

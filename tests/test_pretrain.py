@@ -11,6 +11,7 @@ from tfmplayground.configs.models import (
     TabFMRegressorConfig,
     TabICLRegressorConfig,
 )
+from tfmplayground.configs.priors import TabICLClassificationPriorConfig
 from tfmplayground.configs.training import RegressionTrainingConfig, TrainingConfig
 from tfmplayground.evaluation.evaluation import (
     TABARENA_TASKS,
@@ -203,3 +204,51 @@ def test_the_readme_import_works():
 
     assert tfmplayground.pretrainTFM is pretrainTFM
     assert set(tfmplayground.__all__) == {"TabularClassifier", "TabularRegressor", "pretrainTFM"}
+
+
+def test_a_classifier_model_is_refused_for_regression(tmp_path, offline_openml):
+    with pytest.raises(ValueError, match="built for classification"):
+        pretrainTFM(
+            problem="regression",
+            model=NanoTabPFNModel(config=NanoTabPFNClassifierConfig(**small(3))),
+            prior=TinyPrior(),
+            training=RegressionTrainingConfig(epochs=1, steps=1, batch_size=2),
+        )
+
+
+def test_a_regressor_model_is_refused_for_classification(tmp_path, offline_openml):
+    with pytest.raises(ValueError, match="built for regression"):
+        pretrainTFM(
+            problem="classification",
+            model=NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(9))),
+            prior=TinyPrior(),
+            training=TrainingConfig(epochs=1, steps=1, batch_size=2),
+        )
+
+
+def test_a_model_that_carries_no_config_is_let_through(tmp_path, offline_openml, monkeypatch):
+    monkeypatch.setattr(pretrain_module, "train", lambda **kwargs: (kwargs["model"], 0.0))
+    model = NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(9)))
+    del model.config
+    training = TrainingConfig(epochs=1, steps=1, batch_size=2)
+    assert pretrainTFM(problem="classification", model=model, prior=TinyPrior(), training=training) is model
+
+
+def test_a_classification_prior_is_refused_for_regression(tmp_path, offline_openml):
+    with pytest.raises(ValueError, match="built for classification"):
+        pretrainTFM(
+            problem="regression",
+            model=NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(9))),
+            prior=TabICLPrior(config=TabICLClassificationPriorConfig(), device="cpu"),
+            training=RegressionTrainingConfig(epochs=1, steps=1, batch_size=2),
+        )
+
+
+def test_a_regression_training_config_is_refused_for_classification(tmp_path, offline_openml):
+    with pytest.raises(ValueError, match="built for regression"):
+        pretrainTFM(
+            problem="classification",
+            model=NanoTabPFNModel(config=NanoTabPFNClassifierConfig(**small(3))),
+            prior=TinyPrior(),
+            training=RegressionTrainingConfig(epochs=1, steps=1, batch_size=2),
+        )

@@ -73,7 +73,7 @@ def test_every_config_field_reaches_the_model(model_class, config_class):
     read = set(re.findall(r"config\.(\w+)", source))
     ours = {field.name for field in fields(config_class)}
     unread = ours - read
-    assert unread <= {"head"}
+    assert unread <= {"head", "problem"}
     assert read <= ours
 
 
@@ -104,3 +104,16 @@ def test_every_experiment_config_shares_the_defaults():
     for config in (ClassificationExperimentConfig(), RegressionExperimentConfig()):
         assert config.name == "test"
         assert config.experiments_dir == "workdir/experiments"
+
+
+@pytest.mark.parametrize(("model_class", "config_class"), PAIRS, ids=lambda p: p.__name__)
+def test_every_model_config_names_its_problem(model_class, config_class):
+    name = config_class.__name__
+    expected = "classification" if "Classifier" in name else "regression"
+    assert config_class().problem == expected
+
+
+@pytest.mark.parametrize(("model_class", "config_class"), PAIRS, ids=lambda p: p.__name__)
+def test_only_a_regression_config_names_a_head(model_class, config_class):
+    config = config_class()
+    assert hasattr(config, "head") == (config.problem == "regression")

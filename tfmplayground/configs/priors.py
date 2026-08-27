@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 @dataclass
 class ModdedNanoSCMPriorConfig:
+    problem: str = "classification"
     min_num_classes: int = 2
     max_num_classes: int = 8
     min_num_cols: int = 20
@@ -61,9 +62,11 @@ class TabICLRegressionPriorConfig(TabICLPriorConfig):
 
 @dataclass
 class ClassificationPriorDumpConfig:
+    problem: str = "classification"
     filename: str = "50x3_3_100k_classification.h5"
 
 
 @dataclass
 class RegressionPriorDumpConfig:
+    problem: str = "regression"
     filename: str = "50x3_1280k_regression.h5"

@@ -11,11 +11,13 @@ class NanoTabPFNModelConfig:
 
 @dataclass
 class NanoTabPFNClassifierConfig(NanoTabPFNModelConfig):
+    problem: str = "classification"
     num_outputs: int = 10
 
 
 @dataclass
 class NanoTabPFNRegressorConfig(NanoTabPFNModelConfig):
+    problem: str = "regression"
     head: str = "buckets"
     num_outputs: int = 100
 
@@ -51,11 +53,13 @@ class TabICLModelConfig:
 
 @dataclass
 class TabICLClassifierConfig(TabICLModelConfig):
+    problem: str = "classification"
     max_classes: int = 10
 
 
 @dataclass
 class TabICLRegressorConfig(TabICLModelConfig):
+    problem: str = "regression"
     head: str = "quantiles"
     max_classes: int = 0
 
@@ -76,12 +80,14 @@ class NanoTabICLModelConfig:
 
 @dataclass
 class NanoTabICLClassifierConfig(NanoTabICLModelConfig):
+    problem: str = "classification"
     max_classes: int = 10
     out_dim: int = 10
 
 
 @dataclass
 class NanoTabICLRegressorConfig(NanoTabICLModelConfig):
+    problem: str = "regression"
     head: str = "quantiles"
     max_classes: int = 0
     out_dim: int = 999
@@ -100,11 +106,13 @@ class ModdedNanoTabPFNModelConfig:
 
 @dataclass
 class ModdedNanoTabPFNClassifierConfig(ModdedNanoTabPFNModelConfig):
+    problem: str = "classification"
     o: int = 10
 
 
 @dataclass
 class ModdedNanoTabPFNRegressorConfig(ModdedNanoTabPFNModelConfig):
+    problem: str = "regression"
     head: str = "buckets"
     o: int = 999
 
@@ -130,10 +138,12 @@ class TabFMModelConfig:
 
 @dataclass
 class TabFMClassifierConfig(TabFMModelConfig):
+    problem: str = "classification"
     is_classifier: bool = True
 
 
 @dataclass
 class TabFMRegressorConfig(TabFMModelConfig):
+    problem: str = "regression"
     head: str = "scalar"
     is_classifier: bool = False

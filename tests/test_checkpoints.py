@@ -203,3 +203,14 @@ def test_a_failed_write_leaves_the_old_file_whole(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         run_experiment.save_checkpoint(target, saved, optimizer(saved), 2, None)
     assert target.read_bytes() == good
+
+
+def test_a_score_that_is_not_finite_never_becomes_best(tmp_path):
+    run_experiment = experiment(tmp_path)
+    saved = model()
+    run_experiment.score = float("nan")
+    run_experiment.save_checkpoints(saved, optimizer(saved), 1, None)
+    assert not run_experiment.best_checkpoint_path.exists()
+    run_experiment.score = 0.5
+    run_experiment.save_checkpoints(saved, optimizer(saved), 2, None)
+    assert run_experiment.best_score == 0.5

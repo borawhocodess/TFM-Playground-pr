@@ -1,3 +1,4 @@
+import math
 import os
 import random
 import uuid
@@ -190,7 +191,7 @@ class Experiment:
 
     def save_checkpoints(self, model, optimizer, epoch, prior):
         self.save_checkpoint(self.last_checkpoint_path, model, optimizer, epoch, prior)
-        if self.score is not None:
+        if self.score is not None and math.isfinite(self.score):
             if self.best_score is None or self.score > self.best_score:
                 self.best_score = self.score
                 self.save_checkpoint(self.best_checkpoint_path, model, optimizer, epoch, prior)

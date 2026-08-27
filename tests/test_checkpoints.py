@@ -1,14 +1,17 @@
+import numpy as np
 import schedulefree
 import torch
+from pfns.bar_distribution import FullSupportBarDistribution
 from torch import nn
 
-from tfmplayground.configs.models import NanoTabPFNClassifierConfig
+from tfmplayground.configs.models import NanoTabPFNClassifierConfig, NanoTabPFNRegressorConfig
 from tfmplayground.configs.training import ClassificationExperimentConfig
+from tfmplayground.interface import TabularRegressor
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
 from tfmplayground.priors import Prior
 from tfmplayground.training.callbacks import Callback
 from tfmplayground.training.train import train
-from tfmplayground.utils import Experiment
+from tfmplayground.utils import Experiment, QuantileLoss, load_model
 
 
 class ClassificationPrior(Prior):
@@ -131,3 +134,44 @@ def test_both_files_hold_the_run_state(tmp_path):
         assert checkpoint["optimizer_state"]["state"] is not None
         assert set(checkpoint["random_state"]) == {"python", "numpy", "torch"}
         assert "prior_pointer" in checkpoint
+
+
+def test_the_loaded_model_matches_the_trained_one(tmp_path):
+    trained, _ = run(tmp_path)
+    loaded = load_model(only(tmp_path, "last"))
+    assert type(loaded) is type(trained)
+    assert loaded.config == trained.config
+    for a, b in zip(loaded.state_dict().values(), trained.to("cpu").state_dict().values(), strict=True):
+        assert torch.equal(a, b)
+
+
+def test_the_loaded_borders_come_back_fitted(tmp_path):
+    run_experiment = experiment(tmp_path)
+    saved = NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(9)))
+    saved.borders = torch.linspace(-3, 3, 10)
+    run_experiment.save_checkpoint(run_experiment.last_checkpoint_path, saved, optimizer(saved), 1, None)
+    loaded = load_model(only(tmp_path, "last"))
+    assert torch.equal(loaded.borders, saved.borders)
+    assert isinstance(TabularRegressor(loaded, device="cpu").dist, FullSupportBarDistribution)
+
+
+def test_a_loaded_regressor_predicts_without_anything_else(tmp_path):
+    config = NanoTabPFNRegressorConfig(**small(9))
+    config.head = "quantiles"
+    train(
+        model=NanoTabPFNModel(config=config),
+        prior=ClassificationPrior(),
+        criterion=QuantileLoss(9),
+        epochs=1,
+        batch_size=2,
+        steps_per_epoch=1,
+        lr=1e-4,
+        grad_clip=1.0,
+        device="cpu",
+        callbacks=[Quiet()],
+        experiment=experiment(tmp_path),
+    )
+    regressor = TabularRegressor(load_model(only(tmp_path, "last")), device="cpu")
+    assert isinstance(regressor.dist, QuantileLoss)
+    regressor.fit(np.zeros((8, 3)), np.arange(8, dtype=float))
+    assert regressor.predict(np.zeros((4, 3))).shape == (4,)

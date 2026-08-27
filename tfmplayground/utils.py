@@ -11,6 +11,9 @@ import torch
 from pfns.bar_distribution import FullSupportBarDistribution, get_bucket_limits
 from torch import nn
 
+from tfmplayground import models
+from tfmplayground.configs import models as model_configs
+
 
 def set_randomness_seed(seed):
     random.seed(seed)
@@ -136,6 +139,15 @@ def make_regression_decoder(model):
             raise ValueError("the borders are flat, so this model cannot decode buckets")
         return FullSupportBarDistribution(model.borders)
     raise ValueError(f"the head must be scalar, quantiles or buckets, not {head!r}")
+
+
+def load_model(path):
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    model_class = getattr(models, checkpoint["model_class"])
+    config_class = getattr(model_configs, checkpoint["config_class"])
+    model = model_class(config=config_class(**checkpoint["model_config"]))
+    model.load_state_dict(checkpoint["model_state"])
+    return model
 
 
 class Experiment:

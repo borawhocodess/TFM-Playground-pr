@@ -1,6 +1,11 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
+from sklearn.metrics import r2_score, roc_auc_score
+
+from tfmplayground.evaluation.evaluation import get_openml_predictions
+from tfmplayground.interface import TabularClassifier, TabularRegressor
+
 
 class Callback(ABC):
     """Abstract base class for callbacks."""
@@ -100,3 +105,41 @@ class ExperimentCallback(BaseLoggerCallback):
     def close(self):
         minutes = (datetime.now() - self.experiment.started).total_seconds() / 60
         self.experiment.print0(f"runtime: {minutes:.2f} mins")
+
+
+class ExperimentEvaluationCallback(ExperimentCallback):
+    def __init__(self, experiment, tasks, device):
+        super().__init__(experiment)
+        self.tasks = tasks
+        self.device = device
+
+    def evaluate(self, model, **kwargs):
+        raise NotImplementedError
+
+    def on_epoch_end(self, epoch, epoch_time, loss, model, **kwargs):
+        scores = self.evaluate(model, **kwargs)
+        if not scores:
+            raise ValueError("none of the tasks fits this model, so there is nothing to score")
+        mean = sum(scores) / len(scores)
+        line = f"e:{epoch} l:{loss:.4f} e_t:{epoch_time:.2f}s {self.metric}:{mean:.4f} t:{len(scores)}"
+        self.experiment.print0(line, console=True)
+
+
+class ClassifierExperimentEvaluationCallback(ExperimentEvaluationCallback):
+    metric = "roc_auc"
+
+    def evaluate(self, model, **kwargs):
+        classifier = TabularClassifier(model, self.device)
+        predictions = get_openml_predictions(model=classifier, tasks=self.tasks)
+        scores = [roc_auc_score(y_true, y_proba, multi_class="ovr") for y_true, _, y_proba in predictions.values()]
+        return scores
+
+
+class RegressorExperimentEvaluationCallback(ExperimentEvaluationCallback):
+    metric = "r2"
+
+    def evaluate(self, model, **kwargs):
+        regressor = TabularRegressor(model, kwargs.get("dist"), self.device)
+        predictions = get_openml_predictions(model=regressor, tasks=self.tasks)
+        scores = [r2_score(y_true, y_pred) for y_true, y_pred, _ in predictions.values()]
+        return scores

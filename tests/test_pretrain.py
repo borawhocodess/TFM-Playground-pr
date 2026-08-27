@@ -4,14 +4,24 @@ import torch
 
 from tfmplayground.configs.evaluation import EvaluationConfig
 from tfmplayground.configs.models import (
+    ModdedNanoTabPFNClassifierConfig,
     ModdedNanoTabPFNRegressorConfig,
+    NanoTabICLClassifierConfig,
     NanoTabICLRegressorConfig,
     NanoTabPFNClassifierConfig,
     NanoTabPFNRegressorConfig,
+    TabFMClassifierConfig,
     TabFMRegressorConfig,
+    TabICLClassifierConfig,
     TabICLRegressorConfig,
 )
-from tfmplayground.configs.priors import TabICLClassificationPriorConfig
+from tfmplayground.configs.priors import (
+    ModdedNanoSCMPriorConfig,
+    NanoTabICLClassificationPriorConfig,
+    NanoTabICLRegressionPriorConfig,
+    TabICLClassificationPriorConfig,
+    TabICLRegressionPriorConfig,
+)
 from tfmplayground.configs.training import RegressionTrainingConfig, TrainingConfig
 from tfmplayground.evaluation.evaluation import (
     TABARENA_TASKS,
@@ -19,15 +29,17 @@ from tfmplayground.evaluation.evaluation import (
     TOY_TASKS_REGRESSION,
     task_ids,
 )
+from tfmplayground.models.moddednanotabpfn import ModdedNanoTabPFNModel
 from tfmplayground.models.nanotabicl import NanoTabICLModel
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
+from tfmplayground.models.tabfm import TabFMModel
 from tfmplayground.models.tabicl import TabICLModel
-from tfmplayground.priors import Prior, TabICLPrior
+from tfmplayground.priors import ModdedNanoSCMPrior, NanoTabICLPrior, Prior, TabICLPrior
 from tfmplayground.training import callbacks as callbacks_source
 from tfmplayground.training import pretrain as pretrain_module
 from tfmplayground.training.callbacks import ClassifierExperimentEvaluationCallback
 from tfmplayground.training.pretrain import pretrainTFM
-from tfmplayground.utils import Experiment, QuantileLoss, ScalarMSELoss
+from tfmplayground.utils import Experiment, QuantileLoss, ScalarMSELoss, get_default_device
 
 NANO = dict(
     embed_dim=16,
@@ -252,3 +264,174 @@ def test_a_regression_training_config_is_refused_for_classification(tmp_path, of
             prior=TinyPrior(),
             training=RegressionTrainingConfig(epochs=1, steps=1, batch_size=2),
         )
+
+
+ICL = dict(
+    embed_dim=32,
+    col_num_blocks=1,
+    row_num_blocks=1,
+    icl_num_blocks=1,
+    col_nhead=2,
+    row_nhead=2,
+    icl_nhead=2,
+    col_num_inds=8,
+    row_num_cls=2,
+)
+SIZED = ["nanotabpfn", "moddednanotabpfn", "tabicl", "nanotabicl"]
+MODELS = [*SIZED, "tabfm"]
+
+
+class ContinuousPrior(Prior):
+    def __init__(self, seed=0):
+        self.generator = torch.Generator().manual_seed(seed)
+
+    def batch(self, batch_size):
+        x = torch.randn(batch_size, 20, 3, generator=self.generator)
+        y = torch.randn(batch_size, 20, generator=self.generator)
+        return x[:, :12], y[:, :12], x[:, 12:], y[:, 12:]
+
+
+def tiny_classifier(name):
+    if name == "nanotabpfn":
+        return NanoTabPFNModel(config=NanoTabPFNClassifierConfig(**small(3)))
+    if name == "moddednanotabpfn":
+        return ModdedNanoTabPFNModel(config=ModdedNanoTabPFNClassifierConfig(l=1, a=2, e=16, h=32, o=3))
+    if name == "tabicl":
+        return TabICLModel(config=TabICLClassifierConfig(max_classes=3, **ICL))
+    if name == "nanotabicl":
+        return NanoTabICLModel(config=NanoTabICLClassifierConfig(max_classes=3, out_dim=3, **NANO))
+    return TabFMModel(config=TabFMClassifierConfig())
+
+
+def tiny_regressor(name, width):
+    if name == "nanotabpfn":
+        return NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(width)))
+    if name == "moddednanotabpfn":
+        return ModdedNanoTabPFNModel(config=ModdedNanoTabPFNRegressorConfig(l=1, a=2, e=16, h=32, o=width))
+    if name == "tabicl":
+        return TabICLModel(config=TabICLRegressorConfig(num_quantiles=width, **ICL))
+    if name == "nanotabicl":
+        return NanoTabICLModel(config=NanoTabICLRegressorConfig(out_dim=width, **NANO))
+    return TabFMModel(config=TabFMRegressorConfig())
+
+
+@pytest.mark.parametrize("name", MODELS)
+def test_every_model_trains_for_classification(name, tmp_path, offline_openml):
+    pretrainTFM(
+        problem="classification",
+        model=tiny_classifier(name),
+        prior=TinyPrior(),
+        eval=EvaluationConfig(tasks="toy"),
+        training=TrainingConfig(epochs=1, steps=1, batch_size=2),
+    )
+    log = next(tmp_path.rglob("*-log.txt")).read_text()
+    assert "roc_auc:" in log
+    assert "nan" not in log
+
+
+@pytest.mark.parametrize("head", ["buckets", "quantiles", "scalar"])
+@pytest.mark.parametrize("name", SIZED)
+def test_every_sized_model_trains_every_head(name, head, tmp_path, offline_openml):
+    width = 1 if head == "scalar" else 9
+    pretrainTFM(
+        problem="regression",
+        model=tiny_regressor(name, width),
+        prior=ContinuousPrior(),
+        eval=EvaluationConfig(tasks="toy"),
+        training=RegressionTrainingConfig(
+            epochs=1, steps=1, batch_size=2, criterion=head, bucket_borders_min_targets=200
+        ),
+    )
+    log = next(tmp_path.rglob("*-log.txt")).read_text()
+    assert "r2:" in log
+    assert "nan" not in log
+
+
+def test_tabfm_trains_its_declared_scalar_head(tmp_path, offline_openml):
+    pretrainTFM(
+        problem="regression",
+        model=tiny_regressor("tabfm", 1),
+        prior=ContinuousPrior(),
+        eval=EvaluationConfig(tasks="toy"),
+        training=RegressionTrainingConfig(epochs=1, steps=1, batch_size=2),
+    )
+    log = next(tmp_path.rglob("*-log.txt")).read_text()
+    assert "r2:" in log
+    assert "nan" not in log
+
+
+@pytest.mark.parametrize("name", SIZED)
+def test_every_sized_model_trains_its_declared_head(name, tmp_path, offline_openml):
+    pretrainTFM(
+        problem="regression",
+        model=tiny_regressor(name, 9),
+        prior=ContinuousPrior(),
+        eval=EvaluationConfig(tasks="toy"),
+        training=RegressionTrainingConfig(epochs=1, steps=1, batch_size=2, bucket_borders_min_targets=200),
+    )
+    log = next(tmp_path.rglob("*-log.txt")).read_text()
+    assert "r2:" in log
+    assert "nan" not in log
+
+
+def tiny_prior(name, problem, device):
+    if name == "tabicl" and problem == "classification":
+        return TabICLPrior(
+            config=TabICLClassificationPriorConfig(num_datapoints_min=64, num_datapoints_max=128, num_features_max=4),
+            device=device,
+        )
+    if name == "tabicl":
+        return TabICLPrior(
+            config=TabICLRegressionPriorConfig(num_datapoints_min=64, num_datapoints_max=128, num_features_max=4),
+            device=device,
+        )
+    if name == "nanotabicl" and problem == "classification":
+        return NanoTabICLPrior(
+            config=NanoTabICLClassificationPriorConfig(num_datapoints_max=64, num_features=4), device=device
+        )
+    if name == "nanotabicl":
+        return NanoTabICLPrior(
+            config=NanoTabICLRegressionPriorConfig(num_datapoints_max=64, num_features=4), device=device
+        )
+    return ModdedNanoSCMPrior(
+        config=ModdedNanoSCMPriorConfig(
+            max_num_classes=3,
+            min_num_cols=4,
+            max_num_cols=4,
+            min_num_rows=64,
+            max_num_rows=64,
+            min_num_test_rows=16,
+            max_num_test_rows=16,
+        ),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("name", ["tabicl", "nanotabicl", "moddednanoscm"])
+def test_every_prior_feeds_a_classification_run(name, tmp_path, offline_openml):
+    device = get_default_device()
+    pretrainTFM(
+        problem="classification",
+        model=NanoTabPFNModel(config=NanoTabPFNClassifierConfig(**small(10))),
+        prior=tiny_prior(name, "classification", device),
+        eval=EvaluationConfig(tasks="toy"),
+        training=TrainingConfig(epochs=1, steps=1, batch_size=2),
+    )
+    log = next(tmp_path.rglob("*-log.txt")).read_text()
+    assert "roc_auc:" in log
+    assert "nan" not in log
+
+
+@pytest.mark.parametrize("name", ["tabicl", "nanotabicl"])
+def test_every_prior_feeds_a_regression_run(name, tmp_path, offline_openml):
+    device = get_default_device()
+    pretrainTFM(
+        problem="regression",
+        model=NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(9))),
+        prior=tiny_prior(name, "regression", device),
+        eval=EvaluationConfig(tasks="toy"),
+        training=RegressionTrainingConfig(epochs=1, steps=1, batch_size=2, bucket_borders_min_targets=200),
+    )
+    log = next(tmp_path.rglob("*-log.txt")).read_text()
+    assert "r2:" in log
+    assert "nan" not in log

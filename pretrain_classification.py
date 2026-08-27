@@ -2,6 +2,7 @@ import argparse
 
 from torch import nn
 
+from tfmplayground.configs.evaluation import EvaluationConfig
 from tfmplayground.configs.models import TabICLClassifierConfig
 from tfmplayground.configs.priors import TabICLClassificationPriorConfig
 from tfmplayground.configs.training import ClassificationExperimentConfig, TrainingConfig
@@ -39,7 +40,9 @@ experiment_config = ClassificationExperimentConfig(name=args.name)
 
 experiment = Experiment(config=experiment_config)
 
-callbacks = [ClassifierExperimentEvaluationCallback(experiment, tasks=tasks, device=device)]
+evaluation_config = EvaluationConfig()
+
+callbacks = [ClassifierExperimentEvaluationCallback(experiment, config=evaluation_config, tasks=tasks, device=device)]
 
 trained_model, loss = train(
     model=model,

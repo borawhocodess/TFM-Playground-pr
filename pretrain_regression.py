@@ -2,6 +2,7 @@ import argparse
 
 from pfns.bar_distribution import FullSupportBarDistribution
 
+from tfmplayground.configs.evaluation import EvaluationConfig
 from tfmplayground.configs.models import NanoTabPFNRegressorConfig
 from tfmplayground.configs.priors import TabICLRegressionPriorConfig
 from tfmplayground.configs.training import RegressionExperimentConfig, TrainingConfig
@@ -47,7 +48,9 @@ experiment_config = RegressionExperimentConfig(name=args.name)
 
 experiment = Experiment(config=experiment_config)
 
-callbacks = [RegressorExperimentEvaluationCallback(experiment, tasks=tasks, device=device)]
+evaluation_config = EvaluationConfig()
+
+callbacks = [RegressorExperimentEvaluationCallback(experiment, config=evaluation_config, tasks=tasks, device=device)]
 
 trained_model, loss = train(
     model=model,

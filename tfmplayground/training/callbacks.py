@@ -108,10 +108,19 @@ class ExperimentCallback(BaseLoggerCallback):
 
 
 class ExperimentEvaluationCallback(ExperimentCallback):
-    def __init__(self, experiment, tasks, device):
+    def __init__(self, experiment, config, tasks, device):
         super().__init__(experiment)
+        self.config = config
         self.tasks = tasks
         self.device = device
+
+    def predictions(self, model):
+        return get_openml_predictions(
+            model=model,
+            tasks=self.tasks,
+            max_n_features=self.config.max_n_features,
+            max_n_samples=self.config.max_n_samples,
+        )
 
     def evaluate(self, model, **kwargs):
         raise NotImplementedError
@@ -130,7 +139,7 @@ class ClassifierExperimentEvaluationCallback(ExperimentEvaluationCallback):
 
     def evaluate(self, model, **kwargs):
         classifier = TabularClassifier(model, self.device)
-        predictions = get_openml_predictions(model=classifier, tasks=self.tasks)
+        predictions = self.predictions(classifier)
         scores = [roc_auc_score(y_true, y_proba, multi_class="ovr") for y_true, _, y_proba in predictions.values()]
         return scores
 
@@ -140,6 +149,6 @@ class RegressorExperimentEvaluationCallback(ExperimentEvaluationCallback):
 
     def evaluate(self, model, **kwargs):
         regressor = TabularRegressor(model, kwargs.get("dist"), self.device)
-        predictions = get_openml_predictions(model=regressor, tasks=self.tasks)
+        predictions = self.predictions(regressor)
         scores = [r2_score(y_true, y_pred) for y_true, y_pred, _ in predictions.values()]
         return scores

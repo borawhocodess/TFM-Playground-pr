@@ -92,6 +92,18 @@ def make_global_bucket_edges(filename, n_buckets=100, device=None, max_y=5_000_0
     return global_bucket_edges
 
 
+class ScalarMSELoss(nn.MSELoss):
+    def __init__(self):
+        super().__init__(reduction="none")
+
+    def forward(self, logits, target):
+        scalars = logits.reshape(target.shape)
+        return super().forward(scalars, target)
+
+    def mean(self, logits):
+        return logits.squeeze(-1)
+
+
 class QuantileLoss(nn.Module):
     """Pinball loss averaged over a fixed grid of quantile levels."""
 

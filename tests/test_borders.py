@@ -12,13 +12,14 @@ from tfmplayground.configs.models import (
     TabFMRegressorConfig,
     TabICLRegressorConfig,
 )
+from tfmplayground.interface import TabularRegressor
 from tfmplayground.models.moddednanotabpfn import ModdedNanoTabPFN, ModdedNanoTabPFNModel
 from tfmplayground.models.nanotabicl import NanoTabICLModel
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
 from tfmplayground.models.tabfm import TabFMModel
 from tfmplayground.models.tabicl import TabICLModel
 from tfmplayground.priors import Prior
-from tfmplayground.utils import QuantileLoss, make_bucket_borders, make_global_bucket_edges
+from tfmplayground.utils import QuantileLoss, ScalarMSELoss, make_bucket_borders, make_global_bucket_edges
 
 ICL = dict(
     embed_dim=32,
@@ -156,7 +157,7 @@ def test_a_sized_head_trains_every_way(name, way):
     elif way == "quantile":
         loss = QuantileLoss(n_quantiles=9)(output, y_test).mean()
     else:
-        loss = nn.MSELoss()(output.squeeze(-1), y_test)
+        loss = ScalarMSELoss()(output, y_test).mean()
     loss.backward()
     assert torch.isfinite(loss)
     assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in model.parameters())
@@ -171,7 +172,7 @@ def test_tabfm_trains_the_scalar_way():
         torch.randn(2, 5),
     )
     output = model(x_train, y_train, x_test)
-    loss = nn.MSELoss()(output.squeeze(-1), y_test)
+    loss = ScalarMSELoss()(output, y_test).mean()
     loss.backward()
     assert torch.isfinite(loss)
     assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in model.parameters())
@@ -285,3 +286,38 @@ def test_a_wider_threshold_gives_wider_borders():
     narrow = make_bucket_borders(NoisyPrior(0), 20, 1, 8000, outlier_threshold=3.0)
     wide = make_bucket_borders(NoisyPrior(0), 20, 1, 8000, outlier_threshold=6.0)
     assert wide.abs().max() > narrow.abs().max()
+
+
+def test_the_scalar_loss_matches_the_library_one():
+    logits = torch.randn(2, 12, 1)
+    target = torch.randn(2, 12)
+    ours = ScalarMSELoss()(logits, target).mean()
+    theirs = nn.MSELoss()(logits.squeeze(-1), target)
+    assert torch.allclose(ours, theirs)
+
+
+def test_the_scalar_loss_keeps_one_number_for_each_row():
+    assert ScalarMSELoss()(torch.randn(2, 12, 1), torch.randn(2, 12)).shape == (2, 12)
+
+
+def test_the_scalar_loss_refuses_a_head_that_is_not_scalar():
+    with pytest.raises(RuntimeError):
+        ScalarMSELoss()(torch.randn(2, 12, 9), torch.randn(2, 12))
+
+
+@pytest.mark.parametrize("name", SIZED)
+def test_a_scalar_head_predicts_through_the_same_decoder(name):
+    model = build(name, 1)
+    regressor = TabularRegressor(model, ScalarMSELoss(), device="cpu")
+    rng = np.random.default_rng(0)
+    regressor.fit(rng.standard_normal((20, 4)), rng.standard_normal(20))
+    predictions = regressor.predict(rng.standard_normal((10, 4)))
+    assert predictions.shape == (10,)
+    assert np.isfinite(predictions).all()
+
+
+def test_tabfm_predicts_the_scalar_way():
+    regressor = TabularRegressor(build("tabfm", 1), ScalarMSELoss(), device="cpu")
+    rng = np.random.default_rng(0)
+    regressor.fit(rng.standard_normal((20, 4)), rng.standard_normal(20))
+    assert regressor.predict(rng.standard_normal((10, 4))).shape == (10,)

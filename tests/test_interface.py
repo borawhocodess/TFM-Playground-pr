@@ -62,6 +62,15 @@ def test_fit_hands_back_the_classifier():
     assert model.fit(table(), np.array([0, 1] * 10)) is model
 
 
+def test_fit_hands_back_the_regressor():
+    config = NanoTabPFNRegressorConfig(
+        embedding_size=16, num_attention_heads=2, mlp_hidden_size=32, num_layers=1, num_outputs=9
+    )
+    config.head = "quantiles"
+    model = TabularRegressor(NanoTabPFNModel(config=config), device="cpu")
+    assert model.fit(table(), np.arange(20, dtype=float)) is model
+
+
 def test_the_regressor_builds_the_decoder_the_model_declares():
     config = NanoTabPFNRegressorConfig(
         embedding_size=16, num_attention_heads=2, mlp_hidden_size=32, num_layers=1, num_outputs=9

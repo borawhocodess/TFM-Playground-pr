@@ -129,6 +129,7 @@ class ExperimentEvaluationCallback(ExperimentCallback):
         if not scores:
             raise ValueError("none of the tasks fits this model, so there is nothing to score")
         mean = sum(scores) / len(scores)
+        self.experiment.score = mean
         line = f"e:{epoch} l:{loss:.4f} e_t:{epoch_time:.2f}s {self.metric}:{mean:.4f} t:{len(scores)}"
         self.experiment.print0(line, console=True)
 

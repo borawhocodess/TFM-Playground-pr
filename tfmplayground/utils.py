@@ -1,6 +1,10 @@
+import math
+import os
 import random
 import uuid
+from dataclasses import asdict
 from datetime import datetime
+from importlib.metadata import version
 from pathlib import Path
 
 import h5py
@@ -8,6 +12,9 @@ import numpy as np
 import torch
 from pfns.bar_distribution import FullSupportBarDistribution, get_bucket_limits
 from torch import nn
+
+from tfmplayground import models
+from tfmplayground.configs import models as model_configs
 
 
 def set_randomness_seed(seed):
@@ -136,6 +143,15 @@ def make_regression_decoder(model):
     raise ValueError(f"the head must be scalar, quantiles or buckets, not {head!r}")
 
 
+def load_model(path):
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    model_class = getattr(models, checkpoint["model_class"])
+    config_class = getattr(model_configs, checkpoint["config_class"])
+    model = model_class(config=config_class(**checkpoint["model_config"]))
+    model.load_state_dict(checkpoint["model_state"])
+    return model
+
+
 class Experiment:
     def __init__(self, config):
         self.started = datetime.now()
@@ -146,6 +162,31 @@ class Experiment:
         self.dir = Path(config.experiments_dir) / config.problem / name / self.id
         self.dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.dir / f"{self.id}-log.txt"
+        self.score = None
+        self.best_score = None
+        self.best_checkpoint_path = self.dir / f"{self.id}-ckpt-best.pth"
+        self.last_checkpoint_path = self.dir / f"{self.id}-ckpt-last.pth"
+
+    def save_checkpoint(self, path, model):
+        checkpoint = {
+            "version": version("tfmplayground"),
+            "experiment_id": self.id,
+            "problem": model.config.problem,
+            "model_class": type(model).__name__,
+            "config_class": type(model.config).__name__,
+            "model_config": asdict(model.config),
+            "model_state": model.state_dict(),
+        }
+        temporary_path = path.with_suffix(".tmp")
+        torch.save(checkpoint, temporary_path)
+        os.replace(temporary_path, path)
+
+    def save_checkpoints(self, model):
+        self.save_checkpoint(self.last_checkpoint_path, model)
+        if self.score is not None and math.isfinite(self.score):
+            if self.best_score is None or self.score > self.best_score:
+                self.best_score = self.score
+                self.save_checkpoint(self.best_checkpoint_path, model)
 
     def print0(self, s, console=False):
         with open(self.log_path, "a") as f:

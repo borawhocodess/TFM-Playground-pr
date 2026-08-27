@@ -60,6 +60,7 @@ select = [
 ]
 ignore = [
     "E741",  # ambiguous variable name
+    "SIM102",  # nested if instead of a single if
 ]
 
 [tool.ruff.lint.per-file-ignores]

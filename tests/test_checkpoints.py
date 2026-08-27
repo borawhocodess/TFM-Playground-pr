@@ -125,6 +125,7 @@ def test_the_file_names_its_run_and_version(tmp_path):
     checkpoint = read(tmp_path, "last")
     assert checkpoint["experiment_id"] == run_experiment.id
     assert checkpoint["version"]
+    assert checkpoint["problem"] == "classification"
 
 
 def test_both_files_hold_the_run_state(tmp_path):
@@ -175,3 +176,10 @@ def test_a_loaded_regressor_predicts_without_anything_else(tmp_path):
     assert isinstance(regressor.dist, QuantileLoss)
     regressor.fit(np.zeros((8, 3)), np.arange(8, dtype=float))
     assert regressor.predict(np.zeros((4, 3))).shape == (4,)
+
+
+def test_a_regression_file_names_its_own_problem(tmp_path):
+    run_experiment = experiment(tmp_path)
+    saved = NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(9)))
+    run_experiment.save_checkpoint(run_experiment.last_checkpoint_path, saved, optimizer(saved), 1, None)
+    assert read(tmp_path, "last")["problem"] == "regression"

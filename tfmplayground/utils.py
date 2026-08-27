@@ -169,6 +169,7 @@ class Experiment:
         checkpoint = {
             "version": version("tfmplayground"),
             "experiment_id": self.id,
+            "problem": model.config.problem,
             "model_class": type(model).__name__,
             "config_class": type(model.config).__name__,
             "model_config": asdict(model.config),

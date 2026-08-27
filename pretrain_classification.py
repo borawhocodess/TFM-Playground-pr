@@ -3,14 +3,14 @@ from torch import nn
 
 from tfmplayground.configs.models import TabICLClassifierConfig
 from tfmplayground.configs.priors import TabICLClassificationPriorConfig
-from tfmplayground.configs.training import TrainingConfig
+from tfmplayground.configs.training import ClassificationExperimentConfig, TrainingConfig
 from tfmplayground.evaluation.evaluation import TABARENA_TASKS, TOY_TASKS_CLASSIFICATION, get_openml_predictions
 from tfmplayground.interface import TabularClassifier
 from tfmplayground.models.tabicl import TabICLModel
 from tfmplayground.priors import TabICLPrior
-from tfmplayground.training.callbacks import ConsoleLoggerCallback, WandbLoggerCallback
+from tfmplayground.training.callbacks import ConsoleLoggerCallback, ExperimentCallback, WandbLoggerCallback
 from tfmplayground.training.train import train
-from tfmplayground.utils import get_default_device, set_randomness_seed
+from tfmplayground.utils import Experiment, get_default_device, set_randomness_seed
 
 prior_config = TabICLClassificationPriorConfig(num_datapoints_max=256, num_features_max=4)
 training_config = TrainingConfig()
@@ -68,7 +68,11 @@ class ProductionEvaluationLoggerCallback(WandbLoggerCallback):
 
 
 # callbacks = [ProductionEvaluationLoggerCallback('nanoTFM', args.runname)]
-callbacks = [ToyEvaluationLoggerCallback(TOY_TASKS_CLASSIFICATION)]
+experiment_config = ClassificationExperimentConfig()
+
+experiment = Experiment(config=experiment_config)
+
+callbacks = [ToyEvaluationLoggerCallback(TOY_TASKS_CLASSIFICATION), ExperimentCallback(experiment)]
 
 trained_model, loss = train(
     model=model,

@@ -17,6 +17,11 @@ from tfmplayground.configs.models import (
     TabICLClassifierConfig,
     TabICLRegressorConfig,
 )
+from tfmplayground.configs.training import (
+    ClassificationExperimentConfig,
+    ExperimentConfig,
+    RegressionExperimentConfig,
+)
 from tfmplayground.models.moddednanotabpfn import ModdedNanoTabPFNModel
 from tfmplayground.models.nanotabicl import NanoTabICLModel
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
@@ -76,3 +81,18 @@ def test_config_may_be_any_object_with_the_fields(model_class, config_class):
     plain = SimpleNamespace(**{f.name: getattr(config_class(), f.name) for f in fields(config_class)})
     model = model_class(config=plain)
     assert any(parameter.requires_grad for parameter in model.parameters())
+
+
+def test_the_experiment_base_cannot_name_a_problem():
+    assert not hasattr(ExperimentConfig(), "problem")
+
+
+def test_each_experiment_config_names_its_own_problem():
+    assert ClassificationExperimentConfig().problem == "classification"
+    assert RegressionExperimentConfig().problem == "regression"
+
+
+def test_every_experiment_config_shares_the_defaults():
+    for config in (ClassificationExperimentConfig(), RegressionExperimentConfig()):
+        assert config.name == "test"
+        assert config.experiments_dir == "workdir/experiments"

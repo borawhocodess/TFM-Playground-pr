@@ -1,4 +1,7 @@
 import random
+import uuid
+from datetime import datetime
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -105,3 +108,21 @@ class QuantileLoss(nn.Module):
 
     def mean(self, logits: torch.Tensor) -> torch.Tensor:
         return logits.mean(dim=-1)
+
+
+class Experiment:
+    def __init__(self, config):
+        self.started = datetime.now()
+        timestamp = self.started.strftime("%y%m%d-%H%M%S")
+        uid = uuid.uuid4().hex[:8]
+        name = config.name.strip()
+        self.id = f"{timestamp}-{uid}-{name}" if name else f"{timestamp}-{uid}"
+        self.dir = Path(config.experiments_dir) / config.problem / name / self.id
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.log_path = self.dir / f"{self.id}-log.txt"
+
+    def print0(self, s, console=False):
+        with open(self.log_path, "a") as f:
+            if console:
+                print(s)
+            print(s, file=f)

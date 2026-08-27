@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 
 class Callback(ABC):
@@ -86,3 +87,16 @@ class WandbLoggerCallback(BaseLoggerCallback):
 
     def close(self):
         self.wandb.finish()
+
+
+class ExperimentCallback(BaseLoggerCallback):
+    def __init__(self, experiment):
+        self.experiment = experiment
+        self.experiment.print0(f"experiment: {self.experiment.id}", console=True)
+
+    def on_epoch_end(self, epoch, epoch_time, loss, model, **kwargs):
+        self.experiment.print0(f"e:{epoch} l:{loss:.4f} e_t:{epoch_time:.2f}s")
+
+    def close(self):
+        minutes = (datetime.now() - self.experiment.started).total_seconds() / 60
+        self.experiment.print0(f"runtime: {minutes:.2f} mins")

@@ -11,3 +11,19 @@ class TrainingConfig:
     grad_clip: float = 1.0
     bucket_borders_min_targets: int = 1_000_000
     bucket_borders_outlier_threshold: float = 10.0
+
+
+@dataclass
+class ExperimentConfig:
+    name: str = "test"
+    experiments_dir: str = "workdir/experiments"
+
+
+@dataclass
+class ClassificationExperimentConfig(ExperimentConfig):
+    problem: str = "classification"
+
+
+@dataclass
+class RegressionExperimentConfig(ExperimentConfig):
+    problem: str = "regression"

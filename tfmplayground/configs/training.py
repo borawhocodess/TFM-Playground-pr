@@ -18,6 +18,7 @@ class ClassificationTrainingConfig(TrainingConfig):
 
 @dataclass
 class RegressionTrainingConfig(TrainingConfig):
+    criterion: str | None = None
     bucket_borders_min_targets: int = 1_000_000
     bucket_borders_outlier_threshold: float = 10.0
 

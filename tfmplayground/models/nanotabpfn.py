@@ -160,6 +160,7 @@ class Decoder(nn.Module):
 
 class NanoTabPFNModel(NanoTabPFN, TabularFoundationModel):
     def __init__(self, config):
+        self.config = config
         super().__init__(
             embedding_size=config.embedding_size,
             num_attention_heads=config.num_attention_heads,

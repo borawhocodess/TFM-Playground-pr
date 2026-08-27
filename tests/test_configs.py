@@ -72,7 +72,15 @@ def test_every_config_field_reaches_the_model(model_class, config_class):
     source = inspect.getsource(model_class.__init__)
     read = set(re.findall(r"config\.(\w+)", source))
     ours = {field.name for field in fields(config_class)}
-    assert ours == read
+    unread = ours - read
+    assert unread <= {"head"}
+    assert read <= ours
+
+
+@pytest.mark.parametrize(("model_class", "config_class"), PAIRS, ids=lambda p: p.__name__)
+def test_the_model_keeps_its_config(model_class, config_class):
+    config = config_class()
+    assert model_class(config=config).config is config
 
 
 @pytest.mark.parametrize(("model_class", "config_class"), PAIRS, ids=lambda p: p.__name__)

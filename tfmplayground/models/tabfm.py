@@ -7,6 +7,7 @@ from tfmplayground.models.base import TabularFoundationModel
 
 class TabFMModel(TabFM, TabularFoundationModel):
     def __init__(self, config):
+        self.config = config
         super().__init__(
             embed_dim=config.embed_dim,
             max_classes=config.max_classes,

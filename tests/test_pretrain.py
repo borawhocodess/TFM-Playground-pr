@@ -3,7 +3,14 @@ import pytest
 import torch
 
 from tfmplayground.configs.evaluation import EvaluationConfig
-from tfmplayground.configs.models import NanoTabPFNClassifierConfig, NanoTabPFNRegressorConfig
+from tfmplayground.configs.models import (
+    ModdedNanoTabPFNRegressorConfig,
+    NanoTabICLRegressorConfig,
+    NanoTabPFNClassifierConfig,
+    NanoTabPFNRegressorConfig,
+    TabFMRegressorConfig,
+    TabICLRegressorConfig,
+)
 from tfmplayground.configs.training import RegressionTrainingConfig, TrainingConfig
 from tfmplayground.evaluation.evaluation import (
     TABARENA_TASKS,
@@ -11,6 +18,7 @@ from tfmplayground.evaluation.evaluation import (
     TOY_TASKS_REGRESSION,
     task_ids,
 )
+from tfmplayground.models.nanotabicl import NanoTabICLModel
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
 from tfmplayground.models.tabicl import TabICLModel
 from tfmplayground.priors import Prior, TabICLPrior
@@ -18,7 +26,19 @@ from tfmplayground.training import callbacks as callbacks_source
 from tfmplayground.training import pretrain as pretrain_module
 from tfmplayground.training.callbacks import ClassifierExperimentEvaluationCallback
 from tfmplayground.training.pretrain import pretrainTFM
-from tfmplayground.utils import Experiment
+from tfmplayground.utils import Experiment, QuantileLoss, ScalarMSELoss
+
+NANO = dict(
+    embed_dim=16,
+    col_num_blocks=1,
+    row_num_blocks=1,
+    icl_num_blocks=1,
+    col_nhead=2,
+    row_nhead=2,
+    icl_nhead=2,
+    n_cls_cols=2,
+    n_cls_rows=8,
+)
 
 
 class TinyPrior(Prior):
@@ -116,3 +136,63 @@ def test_tabarena_is_named_not_listed():
 
 def test_a_raw_list_of_tasks_still_works():
     assert task_ids([59, 2382], "classification") == [59, 2382]
+
+
+def test_a_scalar_criterion_skips_the_borders(tmp_path, offline_openml, monkeypatch):
+    monkeypatch.setattr(pretrain_module, "make_bucket_borders", lambda **kwargs: pytest.fail("borders were fitted"))
+    model = pretrainTFM(
+        problem="regression",
+        model=NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(1))),
+        prior=TinyPrior(),
+        eval=EvaluationConfig(tasks="toy"),
+        training=RegressionTrainingConfig(epochs=1, steps=2, batch_size=2, criterion="scalar"),
+    )
+    assert (model.borders == 0).all()
+    assert "r2:" in next(tmp_path.rglob("*-log.txt")).read_text()
+
+
+@pytest.mark.parametrize(
+    ("config_class", "expected"),
+    [
+        (NanoTabPFNRegressorConfig, "buckets"),
+        (ModdedNanoTabPFNRegressorConfig, "buckets"),
+        (TabICLRegressorConfig, "quantiles"),
+        (NanoTabICLRegressorConfig, "quantiles"),
+        (TabFMRegressorConfig, "scalar"),
+    ],
+)
+def test_each_regression_head_says_what_it_means(config_class, expected):
+    assert config_class().head == expected
+
+
+def test_a_quantile_head_gets_a_quantile_loss(tmp_path, offline_openml, monkeypatch):
+    monkeypatch.setattr(pretrain_module, "train", lambda **kwargs: (seen.update(kwargs), (kwargs["model"], 0.0))[1])
+    seen = {}
+    pretrainTFM(
+        problem="regression",
+        model=NanoTabICLModel(config=NanoTabICLRegressorConfig(out_dim=9, **NANO)),
+        prior=TinyPrior(),
+        training=RegressionTrainingConfig(epochs=1, steps=1, batch_size=2),
+    )
+    assert isinstance(seen["criterion"], QuantileLoss)
+
+
+def test_the_training_config_overrides_the_head(tmp_path, offline_openml, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(pretrain_module, "train", lambda **kwargs: (seen.update(kwargs), (kwargs["model"], 0.0))[1])
+    pretrainTFM(
+        problem="regression",
+        model=NanoTabICLModel(config=NanoTabICLRegressorConfig(out_dim=9, **NANO)),
+        prior=TinyPrior(),
+        training=RegressionTrainingConfig(epochs=1, steps=1, batch_size=2, criterion="scalar"),
+    )
+    assert isinstance(seen["criterion"], ScalarMSELoss)
+
+
+def test_the_bare_regression_call_needs_no_borders(tmp_path, offline_openml, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(pretrain_module, "train", lambda **kwargs: (seen.update(kwargs), (kwargs["model"], 0.0))[1])
+    monkeypatch.setattr(pretrain_module, "make_bucket_borders", lambda **kwargs: pytest.fail("borders were fitted"))
+    model = pretrainTFM(problem="regression")
+    assert isinstance(model, TabICLModel)
+    assert isinstance(seen["criterion"], QuantileLoss)

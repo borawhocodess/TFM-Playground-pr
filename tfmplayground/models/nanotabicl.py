@@ -202,6 +202,7 @@ class QASSMax(nn.Module):  # query-aware scalable softmax for better context len
 
 class NanoTabICLModel(NanoTabICLv2, TabularFoundationModel):
     def __init__(self, config):
+        self.config = config
         super().__init__(
             max_classes=config.max_classes,
             out_dim=config.out_dim,

@@ -17,7 +17,14 @@ from tfmplayground.training.callbacks import (
     RegressorExperimentEvaluationCallback,
 )
 from tfmplayground.training.train import train
-from tfmplayground.utils import Experiment, get_default_device, make_bucket_borders, set_randomness_seed
+from tfmplayground.utils import (
+    Experiment,
+    QuantileLoss,
+    ScalarMSELoss,
+    get_default_device,
+    make_bucket_borders,
+    set_randomness_seed,
+)
 
 
 def default_training(problem):
@@ -59,14 +66,20 @@ def default_criterion(problem, model, prior, training, device):
     if problem == "classification":
         return nn.CrossEntropyLoss()
     if problem == "regression":
-        model.borders = make_bucket_borders(
-            prior=prior,
-            num_buckets=model.borders.numel() - 1,
-            batch_size=training.batch_size,
-            min_targets=training.bucket_borders_min_targets,
-            outlier_threshold=training.bucket_borders_outlier_threshold,
-        ).to(device)
-        return FullSupportBarDistribution(model.borders).to(device)
+        head = training.criterion if training.criterion is not None else model.config.head
+        if head == "scalar":
+            return ScalarMSELoss()
+        if head == "quantiles":
+            return QuantileLoss(model.borders.numel() - 1).to(device)
+        if head == "buckets":
+            model.borders = make_bucket_borders(
+                prior=prior,
+                num_buckets=model.borders.numel() - 1,
+                batch_size=training.batch_size,
+                min_targets=training.bucket_borders_min_targets,
+                outlier_threshold=training.bucket_borders_outlier_threshold,
+            ).to(device)
+            return FullSupportBarDistribution(model.borders).to(device)
 
 
 def pretrainTFM(problem, model=None, prior=None, eval=None, training=None):
@@ -75,6 +88,8 @@ def pretrainTFM(problem, model=None, prior=None, eval=None, training=None):
 
     experiment = default_experiment(problem)
 
+    training = training if training is not None else default_training(problem)
+
     set_randomness_seed(training.seed)
 
     device = get_default_device()
@@ -82,7 +97,6 @@ def pretrainTFM(problem, model=None, prior=None, eval=None, training=None):
     prior = prior if prior is not None else default_prior(problem, device)
     model = model if model is not None else default_model(problem)
     eval = eval if eval is not None else EvaluationConfig()
-    training = training if training is not None else default_training(problem)
     criterion = default_criterion(problem, model, prior, training, device)
     callback = default_callback(problem, experiment, eval, device)
 

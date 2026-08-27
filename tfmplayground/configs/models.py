@@ -16,6 +16,7 @@ class NanoTabPFNClassifierConfig(NanoTabPFNModelConfig):
 
 @dataclass
 class NanoTabPFNRegressorConfig(NanoTabPFNModelConfig):
+    head: str = "buckets"
     num_outputs: int = 100
 
 
@@ -55,6 +56,7 @@ class TabICLClassifierConfig(TabICLModelConfig):
 
 @dataclass
 class TabICLRegressorConfig(TabICLModelConfig):
+    head: str = "quantiles"
     max_classes: int = 0
 
 
@@ -80,6 +82,7 @@ class NanoTabICLClassifierConfig(NanoTabICLModelConfig):
 
 @dataclass
 class NanoTabICLRegressorConfig(NanoTabICLModelConfig):
+    head: str = "quantiles"
     max_classes: int = 0
     out_dim: int = 999
 
@@ -102,6 +105,7 @@ class ModdedNanoTabPFNClassifierConfig(ModdedNanoTabPFNModelConfig):
 
 @dataclass
 class ModdedNanoTabPFNRegressorConfig(ModdedNanoTabPFNModelConfig):
+    head: str = "buckets"
     o: int = 999
 
 
@@ -131,4 +135,5 @@ class TabFMClassifierConfig(TabFMModelConfig):
 
 @dataclass
 class TabFMRegressorConfig(TabFMModelConfig):
+    head: str = "scalar"
     is_classifier: bool = False

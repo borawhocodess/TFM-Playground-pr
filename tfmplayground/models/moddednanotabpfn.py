@@ -211,6 +211,7 @@ class Decoder(nn.Module):
 
 class ModdedNanoTabPFNModel(ModdedNanoTabPFN, TabularFoundationModel):
     def __init__(self, config):
+        self.config = config
         super().__init__(
             l=config.l,
             a=config.a,

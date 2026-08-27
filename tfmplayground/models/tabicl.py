@@ -9,6 +9,7 @@ from tfmplayground.models.base import TabularFoundationModel
 
 class TabICLModel(TabICL, TabularFoundationModel):
     def __init__(self, config):
+        self.config = config
         super().__init__(
             max_classes=config.max_classes,
             num_quantiles=config.num_quantiles,

@@ -21,7 +21,12 @@ args = parser.parse_args()
 tasks = TOY_TASKS_CLASSIFICATION if args.tasks == "toy" else TABARENA_TASKS
 
 prior_config = TabICLClassificationPriorConfig(num_datapoints_max=256, num_features_max=4)
+model_config = TabICLClassifierConfig()
 training_config = TrainingConfig()
+experiment_config = ClassificationExperimentConfig(name=args.name)
+evaluation_config = EvaluationConfig()
+
+experiment = Experiment(config=experiment_config)
 
 set_randomness_seed(training_config.seed)
 
@@ -29,18 +34,9 @@ device = get_default_device()
 
 prior = TabICLPrior(config=prior_config, device=device)
 
-criterion = nn.CrossEntropyLoss()
-
-model_config = TabICLClassifierConfig()
-
 model = TabICLModel(config=model_config)
 
-
-experiment_config = ClassificationExperimentConfig(name=args.name)
-
-experiment = Experiment(config=experiment_config)
-
-evaluation_config = EvaluationConfig()
+criterion = nn.CrossEntropyLoss()
 
 callbacks = [ClassifierExperimentEvaluationCallback(experiment, config=evaluation_config, tasks=tasks, device=device)]
 

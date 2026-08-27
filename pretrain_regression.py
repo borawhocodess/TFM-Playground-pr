@@ -21,15 +21,18 @@ args = parser.parse_args()
 tasks = TOY_TASKS_REGRESSION if args.tasks == "toy" else TABARENA_TASKS
 
 prior_config = TabICLRegressionPriorConfig(num_datapoints_max=256, num_features_max=4)
+model_config = NanoTabPFNRegressorConfig()
 training_config = TrainingConfig()
+experiment_config = RegressionExperimentConfig(name=args.name)
+evaluation_config = EvaluationConfig()
+
+experiment = Experiment(config=experiment_config)
 
 set_randomness_seed(training_config.seed)
 
 device = get_default_device()
 
 prior = TabICLPrior(config=prior_config, device=device)
-
-model_config = NanoTabPFNRegressorConfig()
 
 model = NanoTabPFNModel(config=model_config)
 
@@ -42,13 +45,6 @@ model.borders = make_bucket_borders(
 ).to(device)
 
 criterion = FullSupportBarDistribution(model.borders).to(device)
-
-
-experiment_config = RegressionExperimentConfig(name=args.name)
-
-experiment = Experiment(config=experiment_config)
-
-evaluation_config = EvaluationConfig()
 
 callbacks = [RegressorExperimentEvaluationCallback(experiment, config=evaluation_config, tasks=tasks, device=device)]
 

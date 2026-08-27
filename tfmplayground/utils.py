@@ -1,6 +1,8 @@
 import random
 import uuid
+from dataclasses import asdict
 from datetime import datetime
+from importlib.metadata import version
 from pathlib import Path
 
 import h5py
@@ -146,6 +148,36 @@ class Experiment:
         self.dir = Path(config.experiments_dir) / config.problem / name / self.id
         self.dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.dir / f"{self.id}-log.txt"
+        self.score = None
+        self.best_score = None
+        self.best_checkpoint_path = self.dir / f"{self.id}-ckpt-best.pth"
+        self.last_checkpoint_path = self.dir / f"{self.id}-ckpt-last.pth"
+
+    def save_checkpoint(self, path, model, optimizer, epoch, prior):
+        checkpoint = {
+            "version": version("tfmplayground"),
+            "experiment_id": self.id,
+            "model_class": type(model).__name__,
+            "config_class": type(model.config).__name__,
+            "model_config": asdict(model.config),
+            "model_state": model.state_dict(),
+            "epoch": epoch,
+            "optimizer_state": optimizer.state_dict(),
+            "prior_pointer": getattr(prior, "pointer", None),
+            "random_state": {
+                "python": random.getstate(),
+                "numpy": np.random.get_state(),
+                "torch": torch.get_rng_state(),
+            },
+        }
+        torch.save(checkpoint, path)
+
+    def save_checkpoints(self, model, optimizer, epoch, prior):
+        self.save_checkpoint(self.last_checkpoint_path, model, optimizer, epoch, prior)
+        if self.score is not None:
+            if self.best_score is None or self.score > self.best_score:
+                self.best_score = self.score
+                self.save_checkpoint(self.best_checkpoint_path, model, optimizer, epoch, prior)
 
     def print0(self, s, console=False):
         with open(self.log_path, "a") as f:

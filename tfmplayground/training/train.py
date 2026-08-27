@@ -22,6 +22,7 @@ def train(
     grad_clip: float,
     device: torch.device = None,
     callbacks: list[Callback] = None,
+    experiment=None,
 ):
     if callbacks is None:
         callbacks = []
@@ -93,6 +94,9 @@ def train(
 
             for callback in callbacks:
                 callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, model)
+
+            if experiment is not None:
+                experiment.save_checkpoints(model, optimizer, epoch, prior)
     except KeyboardInterrupt:
         pass
     finally:

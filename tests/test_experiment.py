@@ -1,4 +1,8 @@
+import schedulefree
+
+from tfmplayground.configs.models import NanoTabPFNClassifierConfig
 from tfmplayground.configs.training import ClassificationExperimentConfig, RegressionExperimentConfig
+from tfmplayground.models.nanotabpfn import NanoTabPFNModel
 from tfmplayground.training.callbacks import ExperimentCallback
 from tfmplayground.utils import Experiment
 
@@ -11,6 +15,13 @@ def test_the_run_makes_its_own_directory(tmp_path):
     experiment = Experiment(config=ClassificationExperimentConfig(experiments_dir=tmp_path))
     assert experiment.dir.is_dir()
     assert experiment.dir.name == experiment.id
+
+
+def test_the_run_names_its_own_files(tmp_path):
+    experiment = Experiment(config=ClassificationExperimentConfig(experiments_dir=tmp_path))
+    assert experiment.log_path == experiment.dir / f"{experiment.id}-log.txt"
+    assert experiment.best_checkpoint_path == experiment.dir / f"{experiment.id}-ckpt-best.pth"
+    assert experiment.last_checkpoint_path == experiment.dir / f"{experiment.id}-ckpt-last.pth"
 
 
 def test_a_run_that_was_never_named_goes_under_test(tmp_path):
@@ -107,3 +118,41 @@ def test_the_log_closes_with_what_the_run_cost(tmp_path):
 
 def test_a_run_that_never_finished_an_epoch_still_closes(tmp_path):
     assert "runtime:" in read(run_callback(tmp_path, epochs=0))
+
+
+def test_the_run_keeps_no_best_score_before_it_starts(tmp_path):
+    experiment = Experiment(config=ClassificationExperimentConfig(experiments_dir=tmp_path))
+    assert experiment.best_score is None
+
+
+def improves(experiment, model, score):
+    before = experiment.best_checkpoint_path.stat().st_mtime_ns if experiment.best_checkpoint_path.exists() else None
+    experiment.score = score
+    experiment.save_checkpoints(model, schedulefree.AdamWScheduleFree(model.parameters(), lr=1e-4), 1, None)
+    after = experiment.best_checkpoint_path.stat().st_mtime_ns if experiment.best_checkpoint_path.exists() else None
+    return before != after
+
+
+def test_a_score_that_does_not_improve_writes_nothing(tmp_path):
+    experiment = Experiment(config=ClassificationExperimentConfig(experiments_dir=tmp_path))
+    model = NanoTabPFNModel(
+        config=NanoTabPFNClassifierConfig(
+            embedding_size=16, num_attention_heads=2, mlp_hidden_size=32, num_layers=1, num_outputs=3
+        )
+    )
+    assert improves(experiment, model, 0.5)
+    assert not improves(experiment, model, 0.4)
+    assert not improves(experiment, model, 0.5)
+    assert improves(experiment, model, 0.6)
+    assert experiment.best_score == 0.6
+
+
+def test_no_score_writes_nothing(tmp_path):
+    experiment = Experiment(config=ClassificationExperimentConfig(experiments_dir=tmp_path))
+    model = NanoTabPFNModel(
+        config=NanoTabPFNClassifierConfig(
+            embedding_size=16, num_attention_heads=2, mlp_hidden_size=32, num_layers=1, num_outputs=3
+        )
+    )
+    assert not improves(experiment, model, None)
+    assert not experiment.best_checkpoint_path.exists()

@@ -110,5 +110,6 @@ def pretrainTFM(problem, model=None, prior=None, eval=None, training=None, devic
         grad_clip=training.grad_clip,
         device=device,
         callbacks=[callback],
+        experiment=experiment,
     )
     return trained_model

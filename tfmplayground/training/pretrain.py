@@ -87,12 +87,12 @@ def default_criterion(problem, model, prior, training, device):
         return make_regression_decoder(model).to(device)
 
 
-def pretrainTFM(problem, model=None, prior=None, eval=None, training=None):
+def pretrainTFM(problem, model=None, prior=None, eval=None, training=None, device=None):
     check_problems(problem, model, prior, training)
     experiment = default_experiment(problem)
     training = training if training is not None else default_training(problem)
     set_randomness_seed(training.seed)
-    device = get_default_device()
+    device = device if device is not None else get_default_device()
     prior = prior if prior is not None else default_prior(problem, device)
     model = model if model is not None else default_model(problem)
     eval = eval if eval is not None else EvaluationConfig()

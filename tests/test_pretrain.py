@@ -474,3 +474,28 @@ def test_an_overridden_head_is_written_back_to_the_config(tmp_path, offline_open
     )
     assert model.config.head == "scalar"
     assert isinstance(TabularRegressor(model).dist, ScalarMSELoss)
+
+
+def test_the_caller_can_name_the_device(tmp_path, offline_openml, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(pretrain_module, "train", lambda **kwargs: (seen.update(kwargs), (kwargs["model"], 0.0))[1])
+    pretrainTFM(
+        problem="classification",
+        model=NanoTabPFNModel(config=NanoTabPFNClassifierConfig(**small(3))),
+        prior=TinyPrior(),
+        training=TrainingConfig(epochs=1, steps=1, batch_size=2),
+        device="cpu",
+    )
+    assert seen["device"] == "cpu"
+
+
+def test_without_a_device_the_default_one_is_taken(tmp_path, offline_openml, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(pretrain_module, "train", lambda **kwargs: (seen.update(kwargs), (kwargs["model"], 0.0))[1])
+    pretrainTFM(
+        problem="classification",
+        model=NanoTabPFNModel(config=NanoTabPFNClassifierConfig(**small(3))),
+        prior=TinyPrior(),
+        training=TrainingConfig(epochs=1, steps=1, batch_size=2),
+    )
+    assert seen["device"] == get_default_device()

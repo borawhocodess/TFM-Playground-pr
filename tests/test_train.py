@@ -35,6 +35,14 @@ class OneTrainRowPrior(Prior):
         return x[:, :1], y[:, :1], x[:, 1:], y[:, 1:]
 
 
+class TooManyClassesPrior(Prior):
+    def batch(self, batch_size):
+        x = torch.randn(batch_size, 20, 3)
+        y = torch.zeros(batch_size, 20)
+        y[:, -1] = 7
+        return x[:, :12], y[:, :12], x[:, 12:], y[:, 12:]
+
+
 def small(outputs):
     return dict(embedding_size=16, num_attention_heads=2, mlp_hidden_size=32, num_layers=1, num_outputs=outputs)
 
@@ -135,3 +143,15 @@ def test_a_non_finite_output_never_reaches_the_criterion():
     with pytest.raises(RuntimeError, match="no finite batches"):
         run(model, ClassificationPrior(), CountingLoss(), [Quiet()])
     assert calls == []
+
+
+def test_a_class_the_model_cannot_emit_stops_the_run():
+    model = NanoTabPFNModel(config=NanoTabPFNClassifierConfig(**small(3)))
+    with pytest.raises(ValueError, match="class 7 but the model has 3 outputs"):
+        run(model, TooManyClassesPrior(), nn.CrossEntropyLoss(), [Quiet()])
+
+
+def test_a_class_the_model_can_emit_is_let_through():
+    model = NanoTabPFNModel(config=NanoTabPFNClassifierConfig(**small(8)))
+    _, loss = run(model, TooManyClassesPrior(), nn.CrossEntropyLoss(), [Quiet()])
+    assert loss > 0

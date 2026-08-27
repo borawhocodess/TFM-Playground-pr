@@ -64,6 +64,10 @@ def train(
                 if classification_task:
                     y_test = y_test.reshape((-1,)).to(torch.long)
                     output = output.reshape(-1, output.shape[-1])
+                    outputs = output.shape[-1]
+                    biggest = int(y_test.max())
+                    if biggest >= outputs:
+                        raise ValueError(f"the prior makes class {biggest} but the model has {outputs} outputs")
 
                 losses = criterion(output, y_test)
                 if not torch.isfinite(losses).all():

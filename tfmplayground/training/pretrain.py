@@ -94,15 +94,10 @@ def default_criterion(problem, model, prior, training, device):
 
 def pretrainTFM(problem, model=None, prior=None, eval=None, training=None):
     check_problems(problem, model, prior, training)
-
     experiment = default_experiment(problem)
-
     training = training if training is not None else default_training(problem)
-
     set_randomness_seed(training.seed)
-
     device = get_default_device()
-
     prior = prior if prior is not None else default_prior(problem, device)
     model = model if model is not None else default_model(problem)
     eval = eval if eval is not None else EvaluationConfig()
@@ -121,5 +116,4 @@ def pretrainTFM(problem, model=None, prior=None, eval=None, training=None):
         device=device,
         callbacks=[callback],
     )
-
     return trained_model

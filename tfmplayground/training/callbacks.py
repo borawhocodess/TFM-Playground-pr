@@ -149,7 +149,7 @@ class RegressorExperimentEvaluationCallback(ExperimentEvaluationCallback):
     metric = "r2"
 
     def evaluate(self, model, **kwargs):
-        regressor = TabularRegressor(model, kwargs.get("dist"), self.device)
+        regressor = TabularRegressor(model, device=self.device)
         predictions = self.predictions(regressor)
         scores = [r2_score(y_true, y_pred) for y_true, y_pred, _ in predictions.values()]
         return scores

@@ -1,4 +1,3 @@
-from pfns.bar_distribution import FullSupportBarDistribution
 from torch import nn
 
 from tfmplayground.configs.evaluation import EvaluationConfig
@@ -19,10 +18,9 @@ from tfmplayground.training.callbacks import (
 from tfmplayground.training.train import train
 from tfmplayground.utils import (
     Experiment,
-    QuantileLoss,
-    ScalarMSELoss,
     get_default_device,
     make_bucket_borders,
+    make_regression_decoder,
     set_randomness_seed,
 )
 
@@ -77,10 +75,6 @@ def default_criterion(problem, model, prior, training, device):
         return nn.CrossEntropyLoss()
     if problem == "regression":
         head = training.criterion if training.criterion is not None else model.config.head
-        if head == "scalar":
-            return ScalarMSELoss()
-        if head == "quantiles":
-            return QuantileLoss(model.borders.numel() - 1).to(device)
         if head == "buckets":
             model.borders = make_bucket_borders(
                 prior=prior,
@@ -89,7 +83,8 @@ def default_criterion(problem, model, prior, training, device):
                 min_targets=training.bucket_borders_min_targets,
                 outlier_threshold=training.bucket_borders_outlier_threshold,
             ).to(device)
-            return FullSupportBarDistribution(model.borders).to(device)
+        model.config.head = head
+        return make_regression_decoder(model).to(device)
 
 
 def pretrainTFM(problem, model=None, prior=None, eval=None, training=None):

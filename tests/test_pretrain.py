@@ -29,6 +29,7 @@ from tfmplayground.evaluation.evaluation import (
     TOY_TASKS_REGRESSION,
     task_ids,
 )
+from tfmplayground.interface import TabularRegressor
 from tfmplayground.models.moddednanotabpfn import ModdedNanoTabPFNModel
 from tfmplayground.models.nanotabicl import NanoTabICLModel
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
@@ -435,3 +436,31 @@ def test_every_prior_feeds_a_regression_run(name, tmp_path, offline_openml):
     log = next(tmp_path.rglob("*-log.txt")).read_text()
     assert "r2:" in log
     assert "nan" not in log
+
+
+def test_a_trained_model_evaluates_without_being_handed_a_decoder(tmp_path, offline_openml):
+    model = pretrainTFM(
+        problem="regression",
+        model=NanoTabPFNModel(config=NanoTabPFNRegressorConfig(**small(9))),
+        prior=ContinuousPrior(),
+        eval=EvaluationConfig(tasks="toy"),
+        training=RegressionTrainingConfig(epochs=1, steps=1, batch_size=2, criterion="quantiles"),
+    )
+    regressor = TabularRegressor(model)
+    assert isinstance(regressor.dist, QuantileLoss)
+    regressor.fit(np.zeros((8, 3)), np.arange(8, dtype=float))
+    assert regressor.predict(np.zeros((4, 3))).shape == (4,)
+
+
+def test_an_overridden_head_is_written_back_to_the_config(tmp_path, offline_openml):
+    config = NanoTabPFNRegressorConfig(**small(1))
+    assert config.head == "buckets"
+    model = pretrainTFM(
+        problem="regression",
+        model=NanoTabPFNModel(config=config),
+        prior=ContinuousPrior(),
+        eval=EvaluationConfig(tasks="toy"),
+        training=RegressionTrainingConfig(epochs=1, steps=1, batch_size=2, criterion="scalar"),
+    )
+    assert model.config.head == "scalar"
+    assert isinstance(TabularRegressor(model).dist, ScalarMSELoss)

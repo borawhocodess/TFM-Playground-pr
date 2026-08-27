@@ -91,16 +91,7 @@ def train(
             optimizer.eval()
 
             for callback in callbacks:
-                if type(criterion) is FullSupportBarDistribution:
-                    callback.on_epoch_end(
-                        epoch,
-                        end_time - epoch_start_time,
-                        mean_loss,
-                        model,
-                        dist=criterion,
-                    )
-                else:
-                    callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, model)
+                callback.on_epoch_end(epoch, end_time - epoch_start_time, mean_loss, model)
     except KeyboardInterrupt:
         pass
     finally:

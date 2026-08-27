@@ -1,8 +1,12 @@
 import numpy as np
+import pytest
+import torch
+from pfns.bar_distribution import FullSupportBarDistribution
 
-from tfmplayground.configs.models import NanoTabPFNClassifierConfig
-from tfmplayground.interface import TabularClassifier
+from tfmplayground.configs.models import NanoTabPFNClassifierConfig, NanoTabPFNRegressorConfig
+from tfmplayground.interface import TabularClassifier, TabularRegressor
 from tfmplayground.models.nanotabpfn import NanoTabPFNModel
+from tfmplayground.utils import QuantileLoss, ScalarMSELoss
 
 
 def classifier(outputs=10):
@@ -56,6 +60,41 @@ def test_contiguous_labels_are_unchanged():
 def test_fit_hands_back_the_classifier():
     model = classifier()
     assert model.fit(table(), np.array([0, 1] * 10)) is model
+
+
+def test_the_regressor_builds_the_decoder_the_model_declares():
+    config = NanoTabPFNRegressorConfig(
+        embedding_size=16, num_attention_heads=2, mlp_hidden_size=32, num_layers=1, num_outputs=9
+    )
+    config.head = "quantiles"
+    regressor = TabularRegressor(NanoTabPFNModel(config=config), device="cpu")
+    assert isinstance(regressor.dist, QuantileLoss)
+    assert regressor.dist.alphas.numel() == 9
+
+
+def test_a_scalar_model_needs_no_borders_to_decode():
+    config = NanoTabPFNRegressorConfig(
+        embedding_size=16, num_attention_heads=2, mlp_hidden_size=32, num_layers=1, num_outputs=1
+    )
+    config.head = "scalar"
+    assert isinstance(TabularRegressor(NanoTabPFNModel(config=config), device="cpu").dist, ScalarMSELoss)
+
+
+def test_flat_borders_cannot_decode_buckets():
+    config = NanoTabPFNRegressorConfig(
+        embedding_size=16, num_attention_heads=2, mlp_hidden_size=32, num_layers=1, num_outputs=9
+    )
+    with pytest.raises(ValueError, match="borders are flat"):
+        TabularRegressor(NanoTabPFNModel(config=config), device="cpu")
+
+
+def test_fitted_borders_decode_buckets():
+    config = NanoTabPFNRegressorConfig(
+        embedding_size=16, num_attention_heads=2, mlp_hidden_size=32, num_layers=1, num_outputs=9
+    )
+    model = NanoTabPFNModel(config=config)
+    model.borders = torch.linspace(-3, 3, 10)
+    assert isinstance(TabularRegressor(model, device="cpu").dist, FullSupportBarDistribution)
 
 
 def test_the_probabilities_sum_to_one():

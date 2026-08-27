@@ -2,14 +2,13 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
-from pfns.bar_distribution import FullSupportBarDistribution
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OrdinalEncoder
 
 from tfmplayground.models import TabularFoundationModel
-from tfmplayground.utils import QuantileLoss, get_default_device
+from tfmplayground.utils import get_default_device, make_regression_decoder
 
 
 # doing these as lambdas would cause TabularClassifier to not be pickle-able,
@@ -120,14 +119,13 @@ class TabularRegressor:
     def __init__(
         self,
         model: TabularFoundationModel,
-        dist: FullSupportBarDistribution | QuantileLoss,
         device: str | torch.device | None = None,
     ):
         if device is None:
             device = get_default_device()
         self.model = model.to(device)
         self.device = device
-        self.dist = dist
+        self.dist = make_regression_decoder(model)
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
         """

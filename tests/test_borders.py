@@ -308,7 +308,8 @@ def test_the_scalar_loss_refuses_a_head_that_is_not_scalar():
 @pytest.mark.parametrize("name", SIZED)
 def test_a_scalar_head_predicts_through_the_same_decoder(name):
     model = build(name, 1)
-    regressor = TabularRegressor(model, ScalarMSELoss(), device="cpu")
+    model.config.head = "scalar"
+    regressor = TabularRegressor(model, device="cpu")
     rng = np.random.default_rng(0)
     regressor.fit(rng.standard_normal((20, 4)), rng.standard_normal(20))
     predictions = regressor.predict(rng.standard_normal((10, 4)))
@@ -317,7 +318,7 @@ def test_a_scalar_head_predicts_through_the_same_decoder(name):
 
 
 def test_tabfm_predicts_the_scalar_way():
-    regressor = TabularRegressor(build("tabfm", 1), ScalarMSELoss(), device="cpu")
+    regressor = TabularRegressor(build("tabfm", 1), device="cpu")
     rng = np.random.default_rng(0)
     regressor.fit(rng.standard_normal((20, 4)), rng.standard_normal(20))
     assert regressor.predict(rng.standard_normal((10, 4))).shape == (10,)

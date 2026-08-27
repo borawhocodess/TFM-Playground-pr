@@ -6,7 +6,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 import torch
-from pfns.bar_distribution import get_bucket_limits
+from pfns.bar_distribution import FullSupportBarDistribution, get_bucket_limits
 from torch import nn
 
 
@@ -120,6 +120,20 @@ class QuantileLoss(nn.Module):
 
     def mean(self, logits: torch.Tensor) -> torch.Tensor:
         return logits.mean(dim=-1)
+
+
+def make_regression_decoder(model):
+    head = model.config.head
+    if head == "scalar":
+        return ScalarMSELoss()
+    if head == "quantiles":
+        return QuantileLoss(model.borders.numel() - 1)
+    if head == "buckets":
+        fitted = bool((model.borders.diff() > 0).all())
+        if not fitted:
+            raise ValueError("the borders are flat, so this model cannot decode buckets")
+        return FullSupportBarDistribution(model.borders)
+    raise ValueError(f"the head must be scalar, quantiles or buckets, not {head!r}")
 
 
 class Experiment:

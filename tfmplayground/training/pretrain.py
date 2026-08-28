@@ -60,10 +60,10 @@ def default_callback(problem, experiment, config, device):
         return RegressorExperimentEvaluationCallback(experiment, config=config, device=device)
 
 
-def check_problems(problem, model, prior, training):
+def check_problems(problem, model, prior, training, experiment):
     if problem not in ("classification", "regression"):
         raise ValueError(f"the problem must be classification or regression, not {problem!r}")
-    for x in (model, prior, training):
+    for x in (model, prior, training, experiment):
         x_config = getattr(x, "config", x)
         x_problem = getattr(x_config, "problem", None)
         if x_problem is not None and x_problem != problem:
@@ -88,7 +88,7 @@ def default_criterion(problem, model, prior, training, device):
 
 
 def pretrainTFM(problem, model=None, prior=None, eval=None, training=None, experiment=None, device=None):
-    check_problems(problem, model, prior, training)
+    check_problems(problem, model, prior, training, experiment)
     experimentconfig = experiment if experiment is not None else default_experiment(problem)
     experiment = Experiment(config=experimentconfig)
     training = training if training is not None else default_training(problem)

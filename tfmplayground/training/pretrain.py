@@ -34,9 +34,9 @@ def default_training(problem):
 
 def default_experiment(problem):
     if problem == "classification":
-        return Experiment(config=ClassificationExperimentConfig())
+        return ClassificationExperimentConfig()
     if problem == "regression":
-        return Experiment(config=RegressionExperimentConfig())
+        return RegressionExperimentConfig()
 
 
 def default_prior(problem, device):
@@ -87,9 +87,10 @@ def default_criterion(problem, model, prior, training, device):
         return make_regression_decoder(model).to(device)
 
 
-def pretrainTFM(problem, model=None, prior=None, eval=None, training=None, device=None):
+def pretrainTFM(problem, model=None, prior=None, eval=None, training=None, experiment=None, device=None):
     check_problems(problem, model, prior, training)
-    experiment = default_experiment(problem)
+    experimentconfig = experiment if experiment is not None else default_experiment(problem)
+    experiment = Experiment(config=experimentconfig)
     training = training if training is not None else default_training(problem)
     set_randomness_seed(training.seed)
     device = device if device is not None else get_default_device()

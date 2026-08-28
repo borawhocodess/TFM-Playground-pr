@@ -44,7 +44,7 @@ class TabICLPriorConfig:
     num_datapoints_max: int = 1024
     num_features_min: int = 2
     num_features_max: int = 100
-    prior_type: str = "mix_scm"
+    prior_type: str = "graph_scm"
     n_jobs: int = 1
 
 

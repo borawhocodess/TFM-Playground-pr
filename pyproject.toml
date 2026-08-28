@@ -23,7 +23,6 @@ dependencies = [
     "requests>=2",
     "scikit-learn>=1.5",
     "schedulefree>=1.4",
-    "pfns==0.3.0",
     "openml==0.15.1",
     "pandas",
     "tqdm",

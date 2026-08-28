@@ -10,7 +10,6 @@ from pathlib import Path
 import h5py
 import numpy as np
 import torch
-from pfns.bar_distribution import FullSupportBarDistribution, get_bucket_limits
 from torch import nn
 
 from tfmplayground import models
@@ -30,6 +29,39 @@ def get_default_device():
     if torch.cuda.is_available():
         device = "cuda"
     return device
+
+
+def compute_bucket_borders(num_buckets, ys):
+    """
+    decides equal mass bucket borders from ys
+    inspired by pfns.model.bar_distribution get_bucket_borders
+    """
+    ys = torch.as_tensor(ys, dtype=torch.float32).flatten()
+    ys = ys[torch.isfinite(ys)]
+
+    if ys.numel() < num_buckets:
+        raise ValueError(f"{ys.numel()} targets cannot make {num_buckets} buckets")
+
+    n = (ys.numel() // num_buckets) * num_buckets
+    ys = ys[:n]
+    ys_per_bucket = n // num_buckets
+
+    ys_sorted, _ = torch.sort(ys)
+
+    chunks = ys_sorted.reshape(num_buckets, ys_per_bucket)
+    interiors = (chunks[:-1, -1] + chunks[1:, 0]) / 2
+
+    min_outer = ys_sorted[0].unsqueeze(0)
+    max_outer = ys_sorted[-1].unsqueeze(0)
+
+    borders = torch.cat([min_outer, interiors, max_outer])
+
+    if borders.numel() != num_buckets + 1:
+        raise ValueError(f"{borders.numel()} borders cannot make {num_buckets} buckets")
+    if borders.numel() != torch.unique_consecutive(borders).numel():
+        raise ValueError("the targets repeat, so one bucket has no width")
+
+    return borders
 
 
 def make_bucket_borders(prior, num_buckets, batch_size, min_targets, outlier_threshold):
@@ -60,21 +92,7 @@ def make_bucket_borders(prior, num_buckets, batch_size, min_targets, outlier_thr
     cut_off = outlier_threshold * inside.std()
     ys = ys.clamp(robust_mean - cut_off, robust_mean + cut_off)
 
-    n = (ys.numel() // num_buckets) * num_buckets
-    ys = ys[:n]
-    ys_per_bucket = n // num_buckets
-    ys_sorted, _ = torch.sort(ys)
-    chunks = ys_sorted.reshape(num_buckets, ys_per_bucket)
-    interiors = (chunks[:-1, -1] + chunks[1:, 0]) / 2
-    min_outer = ys_sorted[0].unsqueeze(0)
-    max_outer = ys_sorted[-1].unsqueeze(0)
-    borders = torch.cat([min_outer, interiors, max_outer])
-
-    if borders.numel() != num_buckets + 1:
-        raise ValueError(f"{borders.numel()} borders cannot make {num_buckets} buckets")
-    if borders.numel() != torch.unique_consecutive(borders).numel():
-        raise ValueError("the targets repeat, so one bucket has no width")
-    return borders
+    return compute_bucket_borders(num_buckets, ys)
 
 
 def make_global_bucket_edges(filename, n_buckets=100, device=None, max_y=5_000_000):
@@ -95,38 +113,8 @@ def make_global_bucket_edges(filename, n_buckets=100, device=None, max_y=5_000_0
         raise ValueError(f"Too few target samples ({ys_concat.size}) to compute {n_buckets} buckets.")
 
     ys_tensor = torch.tensor(ys_concat, dtype=torch.float32, device=device)
-    global_bucket_edges = get_bucket_limits(n_buckets, ys=ys_tensor).to(device)
+    global_bucket_edges = compute_bucket_borders(n_buckets, ys=ys_tensor).to(device)
     return global_bucket_edges
-
-
-def compute_bucket_borders(num_buckets, ys):
-    """
-    decides equal mass bucket borders from ys
-    inspired by pfns.model.bar_distribution get_bucket_borders
-    """
-    ys = torch.as_tensor(ys, dtype=torch.float32).flatten()
-    ys = ys[torch.isfinite(ys)]
-
-    assert ys.numel() > num_buckets
-
-    n = (ys.numel() // num_buckets) * num_buckets
-    ys = ys[:n]
-    ys_per_bucket = n // num_buckets
-
-    ys_sorted, _ = torch.sort(ys)
-
-    chunks = ys_sorted.reshape(num_buckets, ys_per_bucket)
-    interiors = (chunks[:-1, -1] + chunks[1:, 0]) / 2
-
-    min_outer = ys_sorted[0].unsqueeze(0)
-    max_outer = ys_sorted[-1].unsqueeze(0)
-
-    borders = torch.cat([min_outer, interiors, max_outer])
-
-    assert borders.numel() == num_buckets + 1
-    assert borders.numel() == torch.unique_consecutive(borders).numel()
-
-    return borders
 
 
 class BarDistribution(nn.Module):
@@ -138,12 +126,14 @@ class BarDistribution(nn.Module):
     def __init__(self, borders, *, ignore_nan_targets=True):
         super().__init__()
         borders = torch.as_tensor(borders)
-        assert borders.ndim == 1, "borders != 1d"
+        if borders.ndim != 1:
+            raise ValueError(f"the borders must have one dimension, not {borders.ndim}")
         if not torch.is_floating_point(borders):
             borders = borders.to(torch.get_default_dtype())
         borders = borders.contiguous()
         self.register_buffer("borders", borders)
-        assert (self.bar_widths > 0).all(), "borders must be strictly increasing"  # does not allow zero sized buckets
+        if not (self.bar_widths > 0).all():
+            raise ValueError("the borders do not increase, so one bucket has no width")
         self.ignore_nan_targets = ignore_nan_targets
 
     @property
@@ -160,8 +150,9 @@ class BarDistribution(nn.Module):
         """
         ignore_mask = torch.isnan(y)
         if ignore_mask.any():
-            assert self.ignore_nan_targets, "nan in y while ignore_nan_targets=False"
-            y[ignore_mask] = self.borders[0]  # just a default value, will be ignored later
+            if not self.ignore_nan_targets:
+                raise ValueError("a target is nan and ignore_nan_targets is False")
+            y[ignore_mask] = self.borders[0]
         return ignore_mask
 
     def _map_to_bar_indices(self, y):
@@ -209,7 +200,8 @@ class FullSupportBarDistribution(BarDistribution):
         """
         negative log likelihood of y given logits
         """
-        assert logits.shape[-1] == self.num_bars, f"logits last dim shape != num bars"
+        if logits.shape[-1] != self.num_bars:
+            raise ValueError(f"{logits.shape[-1]} logits cannot fill {self.num_bars} bars")
 
         device = logits.device
         dtype = logits.dtype
@@ -243,7 +235,8 @@ class FullSupportBarDistribution(BarDistribution):
         """
         calculates the expected value of the distribution given logits
         """
-        assert logits.shape[-1] == self.num_bars, f"logits last dim shape != num bars"
+        if logits.shape[-1] != self.num_bars:
+            raise ValueError(f"{logits.shape[-1]} logits cannot fill {self.num_bars} bars")
 
         device = logits.device
         dtype = logits.dtype

@@ -2,23 +2,6 @@ from dataclasses import dataclass
 
 
 @dataclass
-class ModdedNanoSCMPriorConfig:
-    problem: str = "classification"
-    min_num_classes: int = 2
-    max_num_classes: int = 8
-    min_num_cols: int = 20
-    max_num_cols: int = 20
-    min_num_parent_attempts: int = 3
-    max_num_parent_attempts: int = 3
-    min_redirection: float = 0.5
-    max_redirection: float = 0.5
-    min_num_rows: int = 1000
-    max_num_rows: int = 1000
-    min_num_test_rows: int = 128
-    max_num_test_rows: int = 128
-
-
-@dataclass
 class NanoTabICLPriorConfig:
     num_datapoints_max: int = 1000
     num_features: int = 20

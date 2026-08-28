@@ -1,6 +1,5 @@
 from .base import DictPrior, Prior, PriorDataLoader
 from .dump import DumpPrior, PriorDumpDataLoader
-from .moddednanoscm import ModdedNanoSCMPrior
 from .nanotabicl import NanoTabICLPrior
 from .tabicl import TabICLPrior, TabICLPriorDataLoader
 from .tabpfn import TabPFNPriorDataLoader, build_tabpfn_prior
@@ -12,7 +11,6 @@ __all__ = [
     "PriorDataLoader",
     "DumpPrior",
     "PriorDumpDataLoader",
-    "ModdedNanoSCMPrior",
     "NanoTabICLPrior",
     "TabICLPrior",
     "TabICLPriorDataLoader",

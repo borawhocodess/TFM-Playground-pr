@@ -167,6 +167,12 @@ class Experiment:
         self.best_checkpoint_path = self.dir / f"{self.id}-ckpt-best.pth"
         self.last_checkpoint_path = self.dir / f"{self.id}-ckpt-last.pth"
 
+    def log_configs(self, **configs):
+        for label, config in configs.items():
+            self.print0(f"{label}: {type(config).__name__}")
+            for name, value in asdict(config).items():
+                self.print0(f"  {name}: {value}")
+
     def save_checkpoint(self, path, model):
         checkpoint = {
             "version": version("tfmplayground"),

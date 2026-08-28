@@ -99,6 +99,7 @@ def pretrainTFM(problem, model=None, prior=None, eval=None, training=None, exper
     eval = eval if eval is not None else EvaluationConfig()
     criterion = default_criterion(problem, model, prior, training, device)
     callback = default_callback(problem, experiment, eval, device)
+    experiment.log_configs(model=model.config, prior=prior.config, eval=eval, training=training)
 
     trained_model, _ = train(
         model=model,

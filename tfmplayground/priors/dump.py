@@ -56,14 +56,16 @@ class PriorDumpDataLoader(DataLoader):
         self.num_steps = num_steps
         self.batch_size = batch_size
         with h5py.File(self.filename, "r") as f:
-            self.num_datapoints_max = f["X"].shape[0]
+            self.num_tables = f["X"].shape[0]
+            self.num_datapoints_max = f["X"].shape[1]
+            self.num_features_max = f["X"].shape[2]
             if "max_num_classes" in f:
                 self.max_num_classes = f["max_num_classes"][0]
             else:
                 self.max_num_classes = None
             self.problem_type = f["problem_type"][()].decode("utf-8")
             self.has_num_datapoints = "num_datapoints" in f
-            self.stored_max_seq_len = f["X"].shape[1]
+            self.sep_key = "train_test_split_index" if "train_test_split_index" in f else "single_eval_pos"
         self.device = device
         self.pointer = starting_index
 
@@ -77,17 +79,14 @@ class PriorDumpDataLoader(DataLoader):
                     num_datapoints_batch = f["num_datapoints"][self.pointer : end]
                     max_seq_in_batch = int(num_datapoints_batch.max())
                 else:
-                    max_seq_in_batch = int(self.stored_max_seq_len)
+                    max_seq_in_batch = int(self.num_datapoints_max)
 
                 x = torch.from_numpy(f["X"][self.pointer : end, :max_seq_in_batch, :num_features])
                 y = torch.from_numpy(f["y"][self.pointer : end, :max_seq_in_batch])
-                if "train_test_split_index" in f:
-                    train_test_split_index = f["train_test_split_index"][self.pointer : end]
-                else:
-                    train_test_split_index = f["single_eval_pos"][self.pointer : end]
+                train_test_split_index = f[self.sep_key][self.pointer : end]
 
                 self.pointer += self.batch_size
-                if self.pointer >= f["X"].shape[0]:
+                if self.pointer >= self.num_tables:
                     print(
                         """Finished iteration over all stored datasets! """
                         """Will start reusing the same data with different splits now."""

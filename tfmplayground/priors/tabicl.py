@@ -106,6 +106,7 @@ class TabICLPrior(Prior):
     def sample_batch(self):
         x, y, active_features, _, train_size = next(self.sampler)
         x = x[:, :, : int(active_features.max().item())]
+        y = y.float()
         return x.to(self.device), y.to(self.device), train_size[0].item()
 
     def batch(self, batch_size):

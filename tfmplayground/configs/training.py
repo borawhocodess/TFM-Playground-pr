@@ -7,7 +7,7 @@ class TrainingConfig:
     batch_size: int = 1
     steps: int = 100
     epochs: int = 10000
-    lr: float = 1e-4
+    lr: float = 1e-3
     grad_clip: float = 1.0
 
 

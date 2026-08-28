@@ -24,7 +24,7 @@ todo: eval example
 interface(model)
 ```
 
-### Pretrain a TFM with spesific configurations
+### Pretrain a TFM with specific configurations
 
 ```python
 modelconfig = ...
@@ -33,10 +33,11 @@ evalconfig = ...
 trainconfig = ...
 
 model = pretrainTFM(
+    problem="classification",
     model=NanoTabPFNModel(config=modelconfig),
-    prior=Prior(config=priorconfig),
-    eval=tabarenasubsampled(config=evalconfig),
-    training=trainer(config=trainconfig),
+    prior=TabICLPrior(config=priorconfig, device=device),
+    eval=evalconfig,
+    training=trainconfig,
 )
 ```
 

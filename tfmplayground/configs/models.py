@@ -19,7 +19,7 @@ class NanoTabPFNClassifierConfig(NanoTabPFNModelConfig):
 class NanoTabPFNRegressorConfig(NanoTabPFNModelConfig):
     problem: str = "regression"
     head: str = "buckets"
-    num_outputs: int = 100
+    num_outputs: int = 1000
 
 
 @dataclass

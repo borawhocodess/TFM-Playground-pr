@@ -2,6 +2,7 @@
 
 import torch
 from tabicl.prior import PriorDataset as TabICLPriorDataset
+from tabicl.prior.graph_lib._config import PriorConfig as TabICLPriorDatasetConfig
 from torch.utils.data import DataLoader
 
 from tfmplayground.priors.base import Prior
@@ -100,6 +101,10 @@ class TabICLPrior(Prior):
             max_seq_len=c.num_datapoints_max,
             prior_type=c.prior_type,
             n_jobs=c.n_jobs,
+            config=TabICLPriorDatasetConfig(
+                filter_unpredictable_datasets=c.filter_unpredictable_datasets,
+                filter_unpredictable_graphs=c.filter_unpredictable_graphs,
+            ),
         )
         self.built_batch_size = batch_size
 

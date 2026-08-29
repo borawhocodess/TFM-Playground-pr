@@ -29,6 +29,8 @@ class TabICLPriorConfig:
     num_features_max: int = 100
     prior_type: str = "graph_scm"
     n_jobs: int = 1
+    filter_unpredictable_datasets: bool = True
+    filter_unpredictable_graphs: bool = True
 
 
 @dataclass

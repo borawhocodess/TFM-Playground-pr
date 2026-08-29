@@ -5,6 +5,10 @@ from torch import nn
 
 
 class TabularFoundationModel(nn.Module, ABC):
+    """
+    base class for every model this package trains
+    """
+
     @abstractmethod
     def forward(
         self,
@@ -13,6 +17,6 @@ class TabularFoundationModel(nn.Module, ABC):
         X_test: torch.Tensor,
     ) -> torch.Tensor:
         """
-        todo
+        predicts the test rows with the train rows as context
         """
         ...

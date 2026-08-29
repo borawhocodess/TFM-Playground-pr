@@ -65,10 +65,10 @@ def train(
                 if classification_task:
                     y_test = y_test.reshape((-1,)).to(torch.long)
                     output = output.reshape(-1, output.shape[-1])
-                    outputs = output.shape[-1]
-                    biggest = int(y_test.max())
-                    if biggest >= outputs:
-                        raise ValueError(f"the prior makes class {biggest} but the model has {outputs} outputs")
+                    output_classes = output.shape[-1]
+                    prior_classes = int(y_test.max()) + 1
+                    if prior_classes > output_classes:
+                        raise ValueError(f"model has {output_classes} outputs, prior gives {prior_classes} classes")
 
                 losses = criterion(output, y_test)
                 if not torch.isfinite(losses).all():
@@ -84,7 +84,7 @@ def train(
                 optimizer.zero_grad()
 
             if num_valid == 0:
-                raise RuntimeError("the prior gave no finite batches in this epoch")
+                raise RuntimeError(f"all {steps_per_epoch} steps in epoch {epoch} had non-finite values")
 
             end_time = time.time()
             mean_loss = total_loss / num_valid

@@ -62,12 +62,12 @@ def default_callback(problem, experiment, config, device):
 
 def check_problems(problem, model, prior, training, experiment):
     if problem not in ("classification", "regression"):
-        raise ValueError(f"the problem must be classification or regression, not {problem!r}")
+        raise ValueError(f"{problem!r} problem is not in (classification, regression)")
     for x in (model, prior, training, experiment):
         x_config = getattr(x, "config", x)
         x_problem = getattr(x_config, "problem", None)
         if x_problem is not None and x_problem != problem:
-            raise ValueError(f"{type(x).__name__} is built for {x_problem}, not {problem}")
+            raise ValueError(f"{type(x).__name__} must do {problem!r}, not {x_problem!r}")
 
 
 def default_criterion(problem, model, prior, training, device):

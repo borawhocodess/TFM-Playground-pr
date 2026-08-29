@@ -85,7 +85,7 @@ class TabICLPrior(Prior):
         self.config = config
         self.device = device if device is not None else get_default_device()
         if self.config.num_datapoints_min >= self.config.num_datapoints_max:
-            raise ValueError("num_datapoints_min must be smaller than num_datapoints_max")
+            raise ValueError("datapoints minimum must be less than maximum")
         self.built_batch_size = None
 
     def build_sampler(self, batch_size):

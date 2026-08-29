@@ -33,5 +33,5 @@ class DictPrior(Prior):
         sep = int(d["train_test_split_index"])
         loaded_batch_size = x.shape[0]
         if loaded_batch_size != batch_size:
-            raise ValueError(f"batch_size is {batch_size} but the wrapped loader gives {loaded_batch_size}")
+            raise ValueError(f"batch size is {batch_size} but loader gives {loaded_batch_size}")
         return x[:, :sep], y[:, :sep], x[:, sep:], target_y[:, sep:]

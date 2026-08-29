@@ -370,7 +370,7 @@ class NanoTabICLPrior(Prior):
         self.config = config
         self.device = device if device is not None else get_default_device()
         if not 0 < self.config.train_fraction_min <= self.config.train_fraction_max < 1:
-            raise ValueError("the train fractions must obey 0 < min <= max < 1")
+            raise ValueError("train fractions must be 0 < min <= max < 1")
 
     def hyperparameters(self):
         c = self.config

@@ -33,7 +33,7 @@ class DumpPrior(Prior):
             key = "train_test_split_index" if "train_test_split_index" in f else "single_eval_pos"
             splits = f[key][self.pointer : end]
             if splits.min() != splits.max():
-                raise ValueError(f"this batch spans tables split at {splits.min()} and at {splits.max()}")
+                raise ValueError(f"batch has different train test splits in range {splits.min()} to {splits.max()}")
             sep = int(splits[0])
             self.pointer += batch_size
         x = x.to(self.device)

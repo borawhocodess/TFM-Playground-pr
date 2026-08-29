@@ -59,7 +59,7 @@ def compute_bucket_borders(num_buckets, ys):
     if borders.numel() != num_buckets + 1:
         raise ValueError(f"{borders.numel()} borders cannot make {num_buckets} buckets")
     if borders.numel() != torch.unique_consecutive(borders).numel():
-        raise ValueError("the targets repeat, so one bucket has no width")
+        raise ValueError("targets repeat, at least one bucket has no width")
 
     return borders
 
@@ -76,7 +76,7 @@ def make_bucket_borders(prior, num_buckets, batch_size, min_targets, outlier_thr
         y = torch.cat([y_train, y_test], dim=1)
         normalized = ((y - y_mean) / y_std).ravel()
         if normalized.numel() == 0:
-            raise ValueError("the prior gives no targets")
+            raise ValueError("prior gave no targets")
         normalized_targets.append(normalized)
         collected += normalized.numel()
 
@@ -127,13 +127,13 @@ class BarDistribution(nn.Module):
         super().__init__()
         borders = torch.as_tensor(borders)
         if borders.ndim != 1:
-            raise ValueError(f"the borders must have one dimension, not {borders.ndim}")
+            raise ValueError(f"borders must have 1 dimension, not {borders.ndim}")
         if not torch.is_floating_point(borders):
             borders = borders.to(torch.get_default_dtype())
         borders = borders.contiguous()
         self.register_buffer("borders", borders)
         if not (self.bar_widths > 0).all():
-            raise ValueError("the borders do not increase, so one bucket has no width")
+            raise ValueError("borders do not increase, at least one bar has no width")
         self.ignore_nan_targets = ignore_nan_targets
 
     @property
@@ -151,7 +151,7 @@ class BarDistribution(nn.Module):
         ignore_mask = torch.isnan(y)
         if ignore_mask.any():
             if not self.ignore_nan_targets:
-                raise ValueError("a target is nan and ignore_nan_targets is False")
+                raise ValueError("targets contain nan which this distribution does not ignore")
             y[ignore_mask] = self.borders[0]
         return ignore_mask
 
@@ -293,11 +293,8 @@ def make_regression_decoder(model):
     if head == "quantiles":
         return QuantileLoss(model.borders.numel() - 1)
     if head == "buckets":
-        fitted = bool((model.borders.diff() > 0).all())
-        if not fitted:
-            raise ValueError("the borders are flat, so this model cannot decode buckets")
         return FullSupportBarDistribution(model.borders)
-    raise ValueError(f"the head must be scalar, quantiles or buckets, not {head!r}")
+    raise ValueError(f"{head!r} head is not in (scalar, quantiles, buckets)")
 
 
 def load_model(path):

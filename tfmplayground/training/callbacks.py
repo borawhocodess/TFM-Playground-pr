@@ -127,7 +127,7 @@ class ExperimentEvaluationCallback(ExperimentCallback):
     def on_epoch_end(self, epoch, epoch_time, loss, model, **kwargs):
         scores = self.evaluate(model, **kwargs)
         if not scores:
-            raise ValueError("none of the tasks fits this model, so there is nothing to score")
+            raise ValueError("scores are empty, nothing to average")
         mean = sum(scores) / len(scores)
         self.experiment.score = mean
         line = f"e:{epoch} l:{loss:.4f} e_t:{epoch_time:.2f}s {self.metric}:{mean:.4f} t:{len(scores)}"

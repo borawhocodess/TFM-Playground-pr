@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from tfmplayground.configs.models import ModdedNanoTabPFNModelConfig
 from tfmplayground.models.base import TabularFoundationModel
 
 
@@ -210,7 +211,14 @@ class Decoder(nn.Module):
 
 
 class ModdedNanoTabPFNModel(ModdedNanoTabPFN, TabularFoundationModel):
-    def __init__(self, config):
+    """
+    todo
+    """
+
+    def __init__(self, config: ModdedNanoTabPFNModelConfig) -> None:
+        """
+        todo
+        """
         self.config = config
         super().__init__(
             l=config.l,
@@ -224,5 +232,13 @@ class ModdedNanoTabPFNModel(ModdedNanoTabPFN, TabularFoundationModel):
         )
         self.register_buffer("borders", torch.zeros(config.o + 1))
 
-    def forward(self, X_train, y_train, X_test):
+    def forward(
+        self,
+        X_train: torch.Tensor,
+        y_train: torch.Tensor,
+        X_test: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        todo
+        """
         return super().forward(X_train, y_train, X_test)

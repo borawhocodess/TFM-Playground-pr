@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 
 
 class Prior(ABC):
+    config = None
+
     @abstractmethod
     def batch(self, batch_size): ...
 
@@ -20,6 +22,7 @@ class DictPrior(Prior):
     def __init__(self, loader):
         self.loader = loader
         self.batches = iter(loader)
+        self.config = getattr(loader, "config", None)
 
     def batch(self, batch_size):
         try:

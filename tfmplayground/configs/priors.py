@@ -46,12 +46,18 @@ class TabICLRegressionPriorConfig(TabICLPriorConfig):
 
 
 @dataclass
-class ClassificationPriorDumpConfig:
+class PriorDumpConfig:
+    filename: str = ""
+    starting_index: int = 0
+
+
+@dataclass
+class ClassificationPriorDumpConfig(PriorDumpConfig):
     problem: str = "classification"
     filename: str = "50x3_3_100k_classification.h5"
 
 
 @dataclass
-class RegressionPriorDumpConfig:
+class RegressionPriorDumpConfig(PriorDumpConfig):
     problem: str = "regression"
     filename: str = "50x3_1280k_regression.h5"

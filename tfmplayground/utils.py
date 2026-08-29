@@ -323,6 +323,8 @@ class Experiment:
 
     def log_configs(self, **configs):
         for label, config in configs.items():
+            if config is None:
+                continue
             self.print0(f"{label}: {type(config).__name__}")
             for name, value in asdict(config).items():
                 self.print0(f"  {name}: {value}")

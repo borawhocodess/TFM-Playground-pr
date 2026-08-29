@@ -7,18 +7,19 @@ class TrainingConfig:
     batch_size: int = 1
     steps: int = 100
     epochs: int = 10000
-    lr: float = 1e-3
     grad_clip: float = 1.0
 
 
 @dataclass
 class ClassificationTrainingConfig(TrainingConfig):
     problem: str = "classification"
+    lr: float = 1e-4
 
 
 @dataclass
 class RegressionTrainingConfig(TrainingConfig):
     problem: str = "regression"
+    lr: float = 1e-4
     criterion: str | None = None
     bucket_borders_min_targets: int = 1_000_000
     bucket_borders_outlier_threshold: float = 10.0

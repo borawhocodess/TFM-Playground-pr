@@ -3,6 +3,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.modules.transformer import LayerNorm, Linear, MultiheadAttention
 
+from tfmplayground.configs.models import NanoTabPFNModelConfig
 from tfmplayground.models.base import TabularFoundationModel
 
 
@@ -159,7 +160,10 @@ class Decoder(nn.Module):
 
 
 class NanoTabPFNModel(NanoTabPFN, TabularFoundationModel):
-    def __init__(self, config):
+    def __init__(self, config: NanoTabPFNModelConfig) -> None:
+        """
+        todo
+        """
         self.config = config
         super().__init__(
             embedding_size=config.embedding_size,
@@ -170,7 +174,15 @@ class NanoTabPFNModel(NanoTabPFN, TabularFoundationModel):
         )
         self.register_buffer("borders", torch.zeros(config.num_outputs + 1))
 
-    def forward(self, X_train, y_train, X_test):
+    def forward(
+        self,
+        X_train: torch.Tensor,
+        y_train: torch.Tensor,
+        X_test: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        todo
+        """
         src = torch.cat([X_train, X_test], dim=1), y_train
         train_test_split_index = y_train.shape[1]
         return super().forward(src, train_test_split_index)

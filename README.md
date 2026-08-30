@@ -31,14 +31,14 @@ full example in [scripts/pretrain_with_configs.py](scripts/pretrain_with_configs
 
 - nanotabpfn - [adapter](tfmplayground/models/nanotabpfn.py) · [repo](https://github.com/automl/nanoTabPFN) · [paper](https://arxiv.org/abs/2511.03634)
 - moddednanotabpfn - [adapter](tfmplayground/models/moddednanotabpfn.py) · [repo](https://github.com/borawhocodess/modded-nanotabpfn) · [paper](https://arxiv.org/abs/2606.03681)
-- nanotabicl - [adapter](tfmplayground/models/nanotabicl.py) · [repo](https://github.com/soda-inria/nanotabicl) · [paper](https://arxiv.org/abs/2602.11139)
-- tabicl - [adapter](tfmplayground/models/tabicl.py) · [repo](https://github.com/soda-inria/tabicl) · [paper](https://arxiv.org/abs/2502.05564)
+- nanotabicl - [adapter](tfmplayground/models/nanotabicl.py) · [repo](https://github.com/soda-inria/nanotabicl)
+- tabicl - [adapter](tfmplayground/models/tabicl.py) · [repo](https://github.com/soda-inria/tabicl) · [paper](https://arxiv.org/abs/2602.11139)
 - tabfm - [adapter](tfmplayground/models/tabfm.py) · [repo](https://github.com/google-research/tabfm) · [blog](https://research.google/blog/introducing-tabfm-a-zero-shot-foundation-model-for-tabular-data/)
 
 ### prior list 
 
-- nanotabicl - [adapter](tfmplayground/priors/nanotabicl.py) · [repo](https://github.com/soda-inria/nanotabicl) · [paper](https://arxiv.org/abs/2602.11139)
-- tabicl - [adapter](tfmplayground/priors/tabicl.py) · [repo](https://github.com/soda-inria/tabicl) · [paper](https://arxiv.org/abs/2502.05564)
+- nanotabicl - [adapter](tfmplayground/priors/nanotabicl.py) · [repo](https://github.com/soda-inria/nanotabicl)
+- tabicl - [adapter](tfmplayground/priors/tabicl.py) · [repo](https://github.com/soda-inria/tabicl) · [paper](https://arxiv.org/abs/2602.11139)
 
 ### eval stuff 
 

@@ -151,7 +151,6 @@ class TransformerEncoderLayer(nn.Module):
         self.norm2 = LowerPrecisionRMSNorm(e, eps=eps)
         self.norm3 = LowerPrecisionRMSNorm(e, eps=eps)
 
-    @torch.compile(dynamic=True)
     def forward(self, src, sep):
         b, r, c, e = src.shape
 

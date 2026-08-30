@@ -82,9 +82,13 @@ class TabICLPriorDataLoader(DataLoader):
 
 
 class TabICLPrior(Prior):
+    """
+    adapts tabicl prior dataset to prior interface
+    """
+
     def __init__(self, config: TabICLPriorConfig, device: torch.device | None = None) -> None:
         """
-        todo
+        keeps config, and checks datapoint limits
         """
         self.config = config
         self.device = device if device is not None else get_default_device()
@@ -94,7 +98,7 @@ class TabICLPrior(Prior):
 
     def build_sampler(self, batch_size: int) -> None:
         """
-        todo
+        builds tabicl from config and remembers its batch size
         """
         c = self.config
         self.sampler = TabICLPriorDataset(
@@ -117,7 +121,7 @@ class TabICLPrior(Prior):
 
     def sample_batch(self) -> tuple[torch.Tensor, torch.Tensor, int]:
         """
-        todo
+        samples one batch of tables with train test split index
         """
         x, y, active_features, _, train_size = next(self.sampler)
         x = x[:, :, : int(active_features.max().item())]
@@ -126,7 +130,7 @@ class TabICLPrior(Prior):
 
     def batch(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        todo
+        gives one batch of sampled tables, split at train test index
         """
         if batch_size != self.built_batch_size:
             self.build_sampler(batch_size)

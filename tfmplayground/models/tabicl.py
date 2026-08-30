@@ -1,14 +1,19 @@
+from collections.abc import Iterator
 from contextlib import contextmanager
 
 import torch
 from tabicl._model.tabicl import TabICL
 from torch import nn
 
+from tfmplayground.configs.models import TabICLModelConfig
 from tfmplayground.models.base import TabularFoundationModel
 
 
 class TabICLModel(TabICL, TabularFoundationModel):
-    def __init__(self, config):
+    def __init__(self, config: TabICLModelConfig) -> None:
+        """
+        todo
+        """
         self.config = config
         super().__init__(
             max_classes=config.max_classes,
@@ -40,7 +45,15 @@ class TabICLModel(TabICL, TabularFoundationModel):
         )
         self.register_buffer("borders", torch.zeros(config.num_quantiles + 1))
 
-    def forward(self, X_train, y_train, X_test):
+    def forward(
+        self,
+        X_train: torch.Tensor,
+        y_train: torch.Tensor,
+        X_test: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        todo
+        """
         X = torch.cat([X_train, X_test], dim=1)
         if self.training:
             return super().forward(X, y_train)
@@ -48,7 +61,10 @@ class TabICLModel(TabICL, TabularFoundationModel):
             return super().forward(X, y_train)
 
     @contextmanager
-    def train_path_without_dropout(self):
+    def train_path_without_dropout(self) -> Iterator[None]:
+        """
+        todo
+        """
         rates = []
         self.train()
         for module in self.modules():

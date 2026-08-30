@@ -34,12 +34,14 @@ class DumpPrior(Prior):
 
     def check_batch_size(self, batch_size: int) -> None:
         """
-        checks that batch size fits dump and divides its block size
+        checks that every batch stays inside one dump block
         """
         if batch_size > self.num_tables:
             raise ValueError(f"batch size {batch_size} is larger than {self.num_tables} tables in dump")
         if self.block_size is not None and self.block_size % batch_size:
             raise ValueError(f"batch size {batch_size} does not divide dump block size {self.block_size}")
+        if self.block_size is not None and self.pointer % batch_size:
+            raise ValueError(f"starting index {self.pointer} does not fit batch size {batch_size}")
 
     def batch(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """

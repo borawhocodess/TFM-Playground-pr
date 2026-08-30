@@ -1,10 +1,14 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
+import torch
 from sklearn.metrics import r2_score, roc_auc_score
 
+from tfmplayground.configs.evaluation import EvaluationConfig
 from tfmplayground.evaluation.evaluation import get_openml_predictions, task_ids
 from tfmplayground.interface import TabularClassifier, TabularRegressor
+from tfmplayground.models.base import TabularFoundationModel
+from tfmplayground.utils import Experiment
 
 
 class Callback(ABC):
@@ -95,25 +99,32 @@ class WandbLoggerCallback(BaseLoggerCallback):
 
 
 class ExperimentCallback(BaseLoggerCallback):
-    def __init__(self, experiment):
+    def __init__(self, experiment: Experiment) -> None:
         self.experiment = experiment
         self.experiment.print0(f"experiment: {self.experiment.id}", console=True)
 
-    def on_epoch_end(self, epoch, epoch_time, loss, model, **kwargs):
+    def on_epoch_end(
+        self,
+        epoch: int,
+        epoch_time: float,
+        loss: float,
+        model: TabularFoundationModel,
+        **kwargs,
+    ) -> None:
         self.experiment.print0(f"e:{epoch} l:{loss:.4f} e_t:{epoch_time:.2f}s")
 
-    def close(self):
+    def close(self) -> None:
         minutes = (datetime.now() - self.experiment.started).total_seconds() / 60
         self.experiment.print0(f"runtime: {minutes:.2f} mins")
 
 
 class ExperimentEvaluationCallback(ExperimentCallback):
-    def __init__(self, experiment, config, device):
+    def __init__(self, experiment: Experiment, config: EvaluationConfig, device: torch.device) -> None:
         super().__init__(experiment)
         self.config = config
         self.device = device
 
-    def predictions(self, model):
+    def predictions(self, model: TabularClassifier | TabularRegressor) -> dict[str, tuple]:
         return get_openml_predictions(
             model=model,
             tasks=task_ids(self.config.tasks, self.problem),
@@ -121,10 +132,17 @@ class ExperimentEvaluationCallback(ExperimentCallback):
             max_n_samples=self.config.max_n_samples,
         )
 
-    def evaluate(self, model, **kwargs):
+    def evaluate(self, model: TabularFoundationModel, **kwargs) -> list[float]:
         raise NotImplementedError
 
-    def on_epoch_end(self, epoch, epoch_time, loss, model, **kwargs):
+    def on_epoch_end(
+        self,
+        epoch: int,
+        epoch_time: float,
+        loss: float,
+        model: TabularFoundationModel,
+        **kwargs,
+    ) -> None:
         scores = self.evaluate(model, **kwargs)
         if not scores:
             raise ValueError("scores are empty, nothing to average")
@@ -138,7 +156,7 @@ class ClassifierExperimentEvaluationCallback(ExperimentEvaluationCallback):
     problem = "classification"
     metric = "roc_auc"
 
-    def evaluate(self, model, **kwargs):
+    def evaluate(self, model: TabularFoundationModel, **kwargs) -> list[float]:
         classifier = TabularClassifier(model, self.device)
         predictions = self.predictions(classifier)
         scores = [roc_auc_score(y_true, y_proba, multi_class="ovr") for y_true, _, y_proba in predictions.values()]
@@ -149,7 +167,7 @@ class RegressorExperimentEvaluationCallback(ExperimentEvaluationCallback):
     problem = "regression"
     metric = "r2"
 
-    def evaluate(self, model, **kwargs):
+    def evaluate(self, model: TabularFoundationModel, **kwargs) -> list[float]:
         regressor = TabularRegressor(model, device=self.device)
         predictions = self.predictions(regressor)
         scores = [r2_score(y_true, y_pred) for y_true, y_pred, _ in predictions.values()]

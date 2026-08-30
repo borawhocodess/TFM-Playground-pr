@@ -7,9 +7,13 @@ from tfmplayground.models.base import TabularFoundationModel
 
 
 class TabFMModel(TabFM, TabularFoundationModel):
+    """
+    adapts tabfm to tabularfoundationmodel interface
+    """
+
     def __init__(self, config: TabFMModelConfig) -> None:
         """
-        todo
+        builds tabfm from config and makes its fourier frequencies random
         """
         self.config = config
         super().__init__(
@@ -44,7 +48,9 @@ class TabFMModel(TabFM, TabularFoundationModel):
         X_test: torch.Tensor,
     ) -> torch.Tensor:
         """
-        todo
+        takes train rows as context and predicts test rows through tabfm forward
+
+        joins train and test rows, pads targets with zeros, and slices test outputs
         """
         batch_size, _ = y_train.shape
         _, num_train_rows, _ = X_train.shape

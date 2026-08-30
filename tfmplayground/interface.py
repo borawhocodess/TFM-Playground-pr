@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OrdinalEncoder, PowerTransformer
+from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OrdinalEncoder, StandardScaler
 
 from tfmplayground.models import TabularFoundationModel
 from tfmplayground.utils import get_default_device, make_regression_decoder
@@ -69,7 +69,7 @@ def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> Pipeline:
     ]
     steps = [
         ("columns", ColumnTransformer(transformers)),
-        ("scale", PowerTransformer(method="yeo-johnson")),
+        ("scale", StandardScaler()),
     ]
     return Pipeline(steps)
 

@@ -160,9 +160,13 @@ class Decoder(nn.Module):
 
 
 class NanoTabPFNModel(NanoTabPFN, TabularFoundationModel):
+    """
+    adapts nanotabpfn to tabularfoundationmodel interface
+    """
+
     def __init__(self, config: NanoTabPFNModelConfig) -> None:
         """
-        todo
+        builds nanotabpfn from config and reserves its borders
         """
         self.config = config
         super().__init__(
@@ -181,7 +185,9 @@ class NanoTabPFNModel(NanoTabPFN, TabularFoundationModel):
         X_test: torch.Tensor,
     ) -> torch.Tensor:
         """
-        todo
+        takes train rows as context and predicts test rows through nanotabpfn forward
+
+        joins train and test rows into one table and takes split index from train targets
         """
         src = torch.cat([X_train, X_test], dim=1), y_train
         train_test_split_index = y_train.shape[1]

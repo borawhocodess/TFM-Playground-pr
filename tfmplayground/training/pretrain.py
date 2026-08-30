@@ -2,8 +2,6 @@ import torch
 from torch import nn
 
 from tfmplayground.configs.evaluation import EvaluationConfig
-from tfmplayground.configs.models import TabICLClassifierConfig, TabICLRegressorConfig
-from tfmplayground.configs.priors import TabICLClassificationPriorConfig, TabICLRegressionPriorConfig
 from tfmplayground.configs.training import (
     ClassificationExperimentConfig,
     ClassificationTrainingConfig,
@@ -13,8 +11,6 @@ from tfmplayground.configs.training import (
     TrainingConfig,
 )
 from tfmplayground.models.base import TabularFoundationModel
-from tfmplayground.models.tabicl import TabICLModel
-from tfmplayground.priors import TabICLPrior
 from tfmplayground.priors.base import Prior
 from tfmplayground.training.callbacks import (
     ClassifierExperimentEvaluationCallback,
@@ -45,20 +41,6 @@ def default_experiment(problem: str) -> ExperimentConfig:
         return RegressionExperimentConfig()
 
 
-def default_prior(problem: str, device: torch.device) -> Prior:
-    if problem == "classification":
-        return TabICLPrior(config=TabICLClassificationPriorConfig(), device=device)
-    if problem == "regression":
-        return TabICLPrior(config=TabICLRegressionPriorConfig(), device=device)
-
-
-def default_model(problem: str) -> TabularFoundationModel:
-    if problem == "classification":
-        return TabICLModel(config=TabICLClassifierConfig())
-    if problem == "regression":
-        return TabICLModel(config=TabICLRegressorConfig())
-
-
 def default_callback(
     problem: str,
     experiment: Experiment,
@@ -73,8 +55,8 @@ def default_callback(
 
 def check_problems(
     problem: str,
-    model: TabularFoundationModel | None,
-    prior: Prior | None,
+    model: TabularFoundationModel,
+    prior: Prior,
     training: TrainingConfig | None,
     experiment: ExperimentConfig | None,
 ) -> None:
@@ -112,8 +94,8 @@ def default_criterion(
 
 def pretrainTFM(
     problem: str,
-    model: TabularFoundationModel | None = None,
-    prior: Prior | None = None,
+    model: TabularFoundationModel,
+    prior: Prior,
     eval: EvaluationConfig | None = None,
     training: TrainingConfig | None = None,
     experiment: ExperimentConfig | None = None,
@@ -125,8 +107,6 @@ def pretrainTFM(
     training = training if training is not None else default_training(problem)
     set_randomness_seed(training.seed)
     device = device if device is not None else get_default_device()
-    prior = prior if prior is not None else default_prior(problem, device)
-    model = model if model is not None else default_model(problem)
     eval = eval if eval is not None else EvaluationConfig()
     criterion = default_criterion(problem, model, prior, training, device)
     callback = default_callback(problem, experiment, eval, device)

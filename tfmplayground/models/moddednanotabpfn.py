@@ -212,12 +212,12 @@ class Decoder(nn.Module):
 
 class ModdedNanoTabPFNModel(ModdedNanoTabPFN, TabularFoundationModel):
     """
-    todo
+    adapts moddednanotabpfn to tabularfoundationmodel interface
     """
 
     def __init__(self, config: ModdedNanoTabPFNModelConfig) -> None:
         """
-        todo
+        builds moddednanotabpfn from config and reserves its borders
         """
         self.config = config
         super().__init__(
@@ -239,6 +239,6 @@ class ModdedNanoTabPFNModel(ModdedNanoTabPFN, TabularFoundationModel):
         X_test: torch.Tensor,
     ) -> torch.Tensor:
         """
-        todo
+        takes train rows as context and predicts test rows through vendored forward
         """
         return super().forward(X_train, y_train, X_test)

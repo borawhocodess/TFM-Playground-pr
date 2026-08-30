@@ -17,6 +17,6 @@ class TabularFoundationModel(nn.Module, ABC):
         X_test: torch.Tensor,
     ) -> torch.Tensor:
         """
-        predicts the test rows with the train rows as context
+        predicts test rows with train rows as context
         """
         ...

@@ -28,6 +28,9 @@ from tfmplayground.utils import (
 
 
 def default_training(problem: str) -> TrainingConfig:
+    """
+    gives training config that matches problem
+    """
     if problem == "classification":
         return ClassificationTrainingConfig()
     if problem == "regression":
@@ -35,6 +38,9 @@ def default_training(problem: str) -> TrainingConfig:
 
 
 def default_experiment(problem: str) -> ExperimentConfig:
+    """
+    gives experiment config that matches problem
+    """
     if problem == "classification":
         return ClassificationExperimentConfig()
     if problem == "regression":
@@ -47,6 +53,9 @@ def default_callback(
     config: EvaluationConfig,
     device: torch.device,
 ) -> ExperimentEvaluationCallback:
+    """
+    gives evaluation callback that matches problem
+    """
     if problem == "classification":
         return ClassifierExperimentEvaluationCallback(experiment, config=config, device=device)
     if problem == "regression":
@@ -60,6 +69,9 @@ def check_problems(
     training: TrainingConfig | None,
     experiment: ExperimentConfig | None,
 ) -> None:
+    """
+    checks that problem is known and every config agrees with it
+    """
     if problem not in ("classification", "regression"):
         raise ValueError(f"{problem!r} problem is not in (classification, regression)")
     for x in (model, prior, training, experiment):
@@ -76,6 +88,11 @@ def default_criterion(
     training: TrainingConfig,
     device: torch.device,
 ) -> nn.Module:
+    """
+    gives loss that matches problem
+
+    fits bucket borders from prior when regression head needs them
+    """
     if problem == "classification":
         return nn.CrossEntropyLoss()
     if problem == "regression":

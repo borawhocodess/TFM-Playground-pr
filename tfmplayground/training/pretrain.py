@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 from tfmplayground.configs.evaluation import EvaluationConfig
@@ -6,13 +7,18 @@ from tfmplayground.configs.priors import TabICLClassificationPriorConfig, TabICL
 from tfmplayground.configs.training import (
     ClassificationExperimentConfig,
     ClassificationTrainingConfig,
+    ExperimentConfig,
     RegressionExperimentConfig,
     RegressionTrainingConfig,
+    TrainingConfig,
 )
+from tfmplayground.models.base import TabularFoundationModel
 from tfmplayground.models.tabicl import TabICLModel
 from tfmplayground.priors import TabICLPrior
+from tfmplayground.priors.base import Prior
 from tfmplayground.training.callbacks import (
     ClassifierExperimentEvaluationCallback,
+    ExperimentEvaluationCallback,
     RegressorExperimentEvaluationCallback,
 )
 from tfmplayground.training.train import train
@@ -25,42 +31,53 @@ from tfmplayground.utils import (
 )
 
 
-def default_training(problem):
+def default_training(problem: str) -> TrainingConfig:
     if problem == "classification":
         return ClassificationTrainingConfig()
     if problem == "regression":
         return RegressionTrainingConfig()
 
 
-def default_experiment(problem):
+def default_experiment(problem: str) -> ExperimentConfig:
     if problem == "classification":
         return ClassificationExperimentConfig()
     if problem == "regression":
         return RegressionExperimentConfig()
 
 
-def default_prior(problem, device):
+def default_prior(problem: str, device: torch.device) -> Prior:
     if problem == "classification":
         return TabICLPrior(config=TabICLClassificationPriorConfig(), device=device)
     if problem == "regression":
         return TabICLPrior(config=TabICLRegressionPriorConfig(), device=device)
 
 
-def default_model(problem):
+def default_model(problem: str) -> TabularFoundationModel:
     if problem == "classification":
         return TabICLModel(config=TabICLClassifierConfig())
     if problem == "regression":
         return TabICLModel(config=TabICLRegressorConfig())
 
 
-def default_callback(problem, experiment, config, device):
+def default_callback(
+    problem: str,
+    experiment: Experiment,
+    config: EvaluationConfig,
+    device: torch.device,
+) -> ExperimentEvaluationCallback:
     if problem == "classification":
         return ClassifierExperimentEvaluationCallback(experiment, config=config, device=device)
     if problem == "regression":
         return RegressorExperimentEvaluationCallback(experiment, config=config, device=device)
 
 
-def check_problems(problem, model, prior, training, experiment):
+def check_problems(
+    problem: str,
+    model: TabularFoundationModel | None,
+    prior: Prior | None,
+    training: TrainingConfig | None,
+    experiment: ExperimentConfig | None,
+) -> None:
     if problem not in ("classification", "regression"):
         raise ValueError(f"{problem!r} problem is not in (classification, regression)")
     for x in (model, prior, training, experiment):
@@ -70,7 +87,13 @@ def check_problems(problem, model, prior, training, experiment):
             raise ValueError(f"{type(x).__name__} must do {problem!r}, not {x_problem!r}")
 
 
-def default_criterion(problem, model, prior, training, device):
+def default_criterion(
+    problem: str,
+    model: TabularFoundationModel,
+    prior: Prior,
+    training: TrainingConfig,
+    device: torch.device,
+) -> nn.Module:
     if problem == "classification":
         return nn.CrossEntropyLoss()
     if problem == "regression":
@@ -87,7 +110,15 @@ def default_criterion(problem, model, prior, training, device):
         return make_regression_decoder(model).to(device)
 
 
-def pretrainTFM(problem, model=None, prior=None, eval=None, training=None, experiment=None, device=None):
+def pretrainTFM(
+    problem: str,
+    model: TabularFoundationModel | None = None,
+    prior: Prior | None = None,
+    eval: EvaluationConfig | None = None,
+    training: TrainingConfig | None = None,
+    experiment: ExperimentConfig | None = None,
+    device: torch.device | None = None,
+) -> TabularFoundationModel:
     check_problems(problem, model, prior, training, experiment)
     experimentconfig = experiment if experiment is not None else default_experiment(problem)
     experiment = Experiment(config=experimentconfig)

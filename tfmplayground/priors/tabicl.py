@@ -5,6 +5,7 @@ from tabicl.prior import PriorDataset as TabICLPriorDataset
 from tabicl.prior.graph_lib._config import PriorConfig as TabICLPriorDatasetConfig
 from torch.utils.data import DataLoader
 
+from tfmplayground.configs.priors import TabICLPriorConfig
 from tfmplayground.priors.base import Prior
 from tfmplayground.utils import get_default_device
 
@@ -81,14 +82,20 @@ class TabICLPriorDataLoader(DataLoader):
 
 
 class TabICLPrior(Prior):
-    def __init__(self, config, device=None):
+    def __init__(self, config: TabICLPriorConfig, device: torch.device | None = None) -> None:
+        """
+        todo
+        """
         self.config = config
         self.device = device if device is not None else get_default_device()
         if self.config.num_datapoints_min >= self.config.num_datapoints_max:
             raise ValueError("datapoints minimum must be less than maximum")
         self.built_batch_size = None
 
-    def build_sampler(self, batch_size):
+    def build_sampler(self, batch_size: int) -> None:
+        """
+        todo
+        """
         c = self.config
         self.sampler = TabICLPriorDataset(
             regression=c.problem == "regression",
@@ -108,13 +115,19 @@ class TabICLPrior(Prior):
         )
         self.built_batch_size = batch_size
 
-    def sample_batch(self):
+    def sample_batch(self) -> tuple[torch.Tensor, torch.Tensor, int]:
+        """
+        todo
+        """
         x, y, active_features, _, train_size = next(self.sampler)
         x = x[:, :, : int(active_features.max().item())]
         y = y.float()
         return x.to(self.device), y.to(self.device), train_size[0].item()
 
-    def batch(self, batch_size):
+    def batch(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        todo
+        """
         if batch_size != self.built_batch_size:
             self.build_sampler(batch_size)
         x, y, sep = self.sample_batch()

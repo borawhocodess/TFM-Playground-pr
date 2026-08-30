@@ -40,6 +40,7 @@ def get_default_device():
 def compute_bucket_borders(num_buckets: int, ys: torch.Tensor) -> torch.Tensor:
     """
     decides equal mass bucket borders from ys
+
     inspired by pfns.model.bar_distribution get_bucket_borders
     """
     ys = torch.as_tensor(ys, dtype=torch.float32).flatten()
@@ -77,6 +78,9 @@ def make_bucket_borders(
     min_targets: int,
     outlier_threshold: float,
 ) -> torch.Tensor:
+    """
+    learns bucket borders from targets that prior gives
+    """
     normalized_targets = []
     collected = 0
     while collected < min_targets:
@@ -132,6 +136,7 @@ def make_global_bucket_edges(filename, n_buckets=100, device=None, max_y=5_000_0
 class BarDistribution(nn.Module):
     """
     bar distribution defined by borders with nan target ignoring option
+
     inspired by pfns.model.bar_distribution BarDistribution
     """
 
@@ -141,6 +146,9 @@ class BarDistribution(nn.Module):
         *,
         ignore_nan_targets: bool = True,
     ) -> None:
+        """
+        checks borders and keeps them
+        """
         super().__init__()
         borders = torch.as_tensor(borders)
         if borders.ndim != 1:
@@ -155,10 +163,16 @@ class BarDistribution(nn.Module):
 
     @property
     def bar_widths(self) -> torch.Tensor:
+        """
+        gives width of every bar
+        """
         return self.borders[1:] - self.borders[:-1]
 
     @property
     def num_bars(self) -> int:
+        """
+        gives how many bars borders make
+        """
         return self.borders.numel() - 1
 
     def _ignore_init(self, y: torch.Tensor) -> torch.Tensor:
@@ -194,6 +208,7 @@ class BarDistribution(nn.Module):
 class FullSupportBarDistribution(BarDistribution):
     """
     extends BarDistribution with half normal tails on both sides for full support
+
     inspired by pfns.model.bar_distribution FullSupportBarDistribution
     """
 
@@ -203,6 +218,9 @@ class FullSupportBarDistribution(BarDistribution):
         *,
         ignore_nan_targets: bool = True,
     ) -> None:
+        """
+        builds bar distribution
+        """
         super().__init__(borders, ignore_nan_targets=ignore_nan_targets)
 
     @staticmethod
@@ -282,14 +300,27 @@ class FullSupportBarDistribution(BarDistribution):
 
 
 class ScalarMSELoss(nn.MSELoss):
+    """
+    mse loss that reports one loss per prediction, like other decoders
+    """
+
     def __init__(self) -> None:
+        """
+        turns off averaging that mse loss does by default
+        """
         super().__init__(reduction="none")
 
     def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        measures squared error of each prediction
+        """
         scalars = logits.reshape(target.shape)
         return super().forward(scalars, target)
 
     def mean(self, logits: torch.Tensor) -> torch.Tensor:
+        """
+        gives prediction itself, since scalar head needs no mean
+        """
         return logits.squeeze(-1)
 
 
@@ -297,23 +328,35 @@ class QuantileLoss(nn.Module):
     """Pinball loss averaged over a fixed grid of quantile levels."""
 
     def __init__(self, n_quantiles: int) -> None:
+        """
+        spreads quantile levels evenly between 0 and 1
+        """
         super().__init__()
         alphas = torch.arange(1, n_quantiles + 1, dtype=torch.float) / (n_quantiles + 1)
         self.register_buffer("alphas", alphas)
 
     def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        measures how far each quantile misses target
+        """
         alphas = self.alphas.to(logits.device)
         error = target.unsqueeze(-1) - logits
         losses = torch.maximum(alphas * error, (alphas - 1.0) * error)
         return losses.mean(dim=-1)
 
     def mean(self, logits: torch.Tensor) -> torch.Tensor:
+        """
+        reads one prediction out of quantiles
+        """
         return logits.mean(dim=-1)
 
 
 def make_regression_decoder(
     model: TabularFoundationModel,
 ) -> ScalarMSELoss | QuantileLoss | FullSupportBarDistribution:
+    """
+    gives loss that fits head in model config
+    """
     head = model.config.head
     if head == "scalar":
         return ScalarMSELoss()
@@ -325,6 +368,9 @@ def make_regression_decoder(
 
 
 def load_model(path: str | Path) -> TabularFoundationModel:
+    """
+    rebuilds model from checkpoint on disk
+    """
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
     model_class = getattr(models, checkpoint["model_class"])
     config_class = getattr(model_configs, checkpoint["config_class"])
@@ -334,7 +380,14 @@ def load_model(path: str | Path) -> TabularFoundationModel:
 
 
 class Experiment:
+    """
+    keeps record of one run, so it can be found again
+    """
+
     def __init__(self, config: ExperimentConfig) -> None:
+        """
+        opens directory for this run
+        """
         self.started = datetime.now()
         timestamp = self.started.strftime("%y%m%d-%H%M%S")
         uid = uuid.uuid4().hex[:8]
@@ -349,6 +402,9 @@ class Experiment:
         self.last_checkpoint_path = self.dir / f"{self.id}-ckpt-last.pth"
 
     def log_configs(self, **configs) -> None:
+        """
+        records what run was configured with
+        """
         for label, config in configs.items():
             if config is None:
                 continue
@@ -357,6 +413,9 @@ class Experiment:
                 self.print0(f"  {name}: {value}")
 
     def save_checkpoint(self, path: Path, model: TabularFoundationModel) -> None:
+        """
+        saves model so that interrupted write cannot lose earlier one
+        """
         checkpoint = {
             "version": version("tfmplayground"),
             "experiment_id": self.id,
@@ -371,6 +430,9 @@ class Experiment:
         os.replace(temporary_path, path)
 
     def save_checkpoints(self, model: TabularFoundationModel) -> None:
+        """
+        keeps last model, and best one so far
+        """
         self.save_checkpoint(self.last_checkpoint_path, model)
         if self.score is not None and math.isfinite(self.score):
             if self.best_score is None or self.score > self.best_score:
@@ -378,6 +440,9 @@ class Experiment:
                 self.save_checkpoint(self.best_checkpoint_path, model)
 
     def print0(self, s: str, console: bool = False) -> None:
+        """
+        records one line, and shows it when asked
+        """
         with open(self.log_path, "a") as f:
             if console:
                 print(s)

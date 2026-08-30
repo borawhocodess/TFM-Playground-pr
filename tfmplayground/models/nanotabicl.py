@@ -202,9 +202,13 @@ class QASSMax(nn.Module):  # query-aware scalable softmax for better context len
 
 
 class NanoTabICLModel(NanoTabICLv2, TabularFoundationModel):
+    """
+    adapts vendored nanotabicl to tabularfoundationmodel interface
+    """
+
     def __init__(self, config: NanoTabICLModelConfig) -> None:
         """
-        todo
+        builds vendored nanotabicl from config and reserves its borders
         """
         self.config = config
         super().__init__(
@@ -230,7 +234,9 @@ class NanoTabICLModel(NanoTabICLv2, TabularFoundationModel):
         X_test: torch.Tensor,
     ) -> torch.Tensor:
         """
-        todo
+        takes train rows as context and predicts test rows through vendored forward
+
+        joins train and test rows and casts class targets to int
         """
         x = torch.cat([X_train, X_test], dim=1)
         y = y_train

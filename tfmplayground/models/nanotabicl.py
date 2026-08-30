@@ -36,6 +36,7 @@ import typing
 import torch
 import torch.nn as nn
 
+from tfmplayground.configs.models import NanoTabICLModelConfig
 from tfmplayground.models.base import TabularFoundationModel
 
 
@@ -201,7 +202,10 @@ class QASSMax(nn.Module):  # query-aware scalable softmax for better context len
 
 
 class NanoTabICLModel(NanoTabICLv2, TabularFoundationModel):
-    def __init__(self, config):
+    def __init__(self, config: NanoTabICLModelConfig) -> None:
+        """
+        todo
+        """
         self.config = config
         super().__init__(
             max_classes=config.max_classes,
@@ -219,7 +223,15 @@ class NanoTabICLModel(NanoTabICLv2, TabularFoundationModel):
         )
         self.register_buffer("borders", torch.zeros(config.out_dim + 1))
 
-    def forward(self, X_train, y_train, X_test):
+    def forward(
+        self,
+        X_train: torch.Tensor,
+        y_train: torch.Tensor,
+        X_test: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        todo
+        """
         x = torch.cat([X_train, X_test], dim=1)
         y = y_train
         if isinstance(self.y_embed_in, ClassEmbedding):  # if classification

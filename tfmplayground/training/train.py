@@ -7,7 +7,7 @@ from torch import nn
 from tfmplayground.models import TabularFoundationModel
 from tfmplayground.priors import Prior, PriorDataLoader
 from tfmplayground.training.callbacks import Callback
-from tfmplayground.utils import FullSupportBarDistribution, QuantileLoss, get_default_device
+from tfmplayground.utils import Experiment, FullSupportBarDistribution, QuantileLoss, get_default_device
 
 
 def train(
@@ -19,10 +19,10 @@ def train(
     steps_per_epoch: int,
     lr: float,
     grad_clip: float,
-    device: torch.device = None,
-    callbacks: list[Callback] = None,
-    experiment=None,
-):
+    device: torch.device | None = None,
+    callbacks: list[Callback] | None = None,
+    experiment: Experiment | None = None,
+) -> TabularFoundationModel:
     if callbacks is None:
         callbacks = []
     if not device:
@@ -33,7 +33,6 @@ def train(
     classification_task = isinstance(criterion, nn.CrossEntropyLoss)
     regression_task = not classification_task
     batches = iter(PriorDataLoader(prior, batch_size))
-    mean_loss = 0.0
 
     try:
         for epoch in range(1, epochs + 1):
@@ -102,4 +101,4 @@ def train(
         for callback in callbacks:
             callback.close()
 
-    return model, mean_loss
+    return model

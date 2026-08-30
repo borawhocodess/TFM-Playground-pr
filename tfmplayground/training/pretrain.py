@@ -154,7 +154,7 @@ def pretrainTFM(
     callback = default_callback(problem, experiment, eval, device)
     experiment.log_configs(model=model.config, prior=prior.config, eval=eval, training=training)
 
-    trained_model, _ = train(
+    trained_model = train(
         model=model,
         prior=prior,
         criterion=criterion,

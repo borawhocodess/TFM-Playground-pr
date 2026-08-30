@@ -10,9 +10,13 @@ from tfmplayground.models.base import TabularFoundationModel
 
 
 class TabICLModel(TabICL, TabularFoundationModel):
+    """
+    adapts tabicl to tabularfoundationmodel interface
+    """
+
     def __init__(self, config: TabICLModelConfig) -> None:
         """
-        todo
+        builds tabicl from config and reserves its borders
         """
         self.config = config
         super().__init__(
@@ -52,7 +56,9 @@ class TabICLModel(TabICL, TabularFoundationModel):
         X_test: torch.Tensor,
     ) -> torch.Tensor:
         """
-        todo
+        takes train rows as context and predicts test rows through tabicl forward
+
+        joins train and test rows, keeps train path in eval mode but without dropout
         """
         X = torch.cat([X_train, X_test], dim=1)
         if self.training:
@@ -63,7 +69,7 @@ class TabICLModel(TabICL, TabularFoundationModel):
     @contextmanager
     def train_path_without_dropout(self) -> Iterator[None]:
         """
-        todo
+        turns dropout off for train path, restores rates after
         """
         rates = []
         self.train()

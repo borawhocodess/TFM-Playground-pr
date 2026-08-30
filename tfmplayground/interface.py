@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OrdinalEncoder
+from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OrdinalEncoder, PowerTransformer
 
 from tfmplayground.models import TabularFoundationModel
 from tfmplayground.utils import get_default_device, make_regression_decoder
@@ -21,9 +21,10 @@ def to_numeric(x):
     return x.apply(pd.to_numeric, errors="coerce").to_numpy()
 
 
-def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> ColumnTransformer:
+def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> Pipeline:
     """
-    fits a preprocessor that imputes NaNs, encodes categorical features and removes constant features
+    fits a preprocessor that imputes NaNs, encodes categorical features, removes constant features
+    and puts every column on the scale the priors train on
     """
     X = pd.DataFrame(X)
     num_mask = []
@@ -62,10 +63,15 @@ def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> ColumnTransformer:
         ]
     )
 
-    preprocessor = ColumnTransformer(
-        transformers=[("num", num_transformer, num_mask), ("cat", cat_transformer, cat_mask)]
-    )
-    return preprocessor
+    transformers = [
+        ("num", num_transformer, num_mask),
+        ("cat", cat_transformer, cat_mask),
+    ]
+    steps = [
+        ("columns", ColumnTransformer(transformers)),
+        ("scale", PowerTransformer(method="yeo-johnson")),
+    ]
+    return Pipeline(steps)
 
 
 class TabularClassifier:

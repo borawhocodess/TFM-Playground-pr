@@ -367,9 +367,13 @@ def rand_weights(n_batch: int, n: int) -> torch.Tensor:
 
 
 class NanoTabICLPrior(Prior):
+    """
+    adapts nanotabicl samplers to prior interface
+    """
+
     def __init__(self, config: NanoTabICLPriorConfig, device: torch.device | None = None) -> None:
         """
-        todo
+        keeps config, and checks train fractions
         """
         self.config = config
         self.device = device if device is not None else get_default_device()
@@ -378,7 +382,7 @@ class NanoTabICLPrior(Prior):
 
     def hyperparameters(self) -> None:
         """
-        todo
+        samples hyperparameters for next batch from config limits
         """
         c = self.config
         self.num_features = c.num_features
@@ -393,7 +397,7 @@ class NanoTabICLPrior(Prior):
 
     def target(self, columns: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        todo
+        makes one feature tensor and one target tensor from columns
         """
         x = torch.cat([columns[f"x_{i}"] for i in range(self.num_features)], dim=-1)
         y = columns["y_0"].squeeze(-1)
@@ -401,7 +405,7 @@ class NanoTabICLPrior(Prior):
 
     def dataset(self) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        todo
+        samples one predictable table with random categorical sizes
         """
         cat_sizes = rand_cat_sizes(self.num_features)
         columns = rand_dataset_filtered(cat_sizes, [self.num_classes], self.num_datapoints_max)
@@ -410,7 +414,7 @@ class NanoTabICLPrior(Prior):
 
     def batch(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        todo
+        stacks sampled tables into one batch, split at train test index
         """
         self.hyperparameters()
         datasets = [self.dataset() for _ in range(batch_size)]

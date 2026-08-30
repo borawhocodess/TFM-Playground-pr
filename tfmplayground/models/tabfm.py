@@ -2,11 +2,15 @@ import torch
 from tabfm.src.pytorch.model import TabFM
 from torch import nn
 
+from tfmplayground.configs.models import TabFMModelConfig
 from tfmplayground.models.base import TabularFoundationModel
 
 
 class TabFMModel(TabFM, TabularFoundationModel):
-    def __init__(self, config):
+    def __init__(self, config: TabFMModelConfig) -> None:
+        """
+        todo
+        """
         self.config = config
         super().__init__(
             embed_dim=config.embed_dim,
@@ -33,7 +37,15 @@ class TabFMModel(TabFM, TabularFoundationModel):
             frequencies = torch.randn_like(zeros) * fourier_sigma
             self.cell_embedder.register_parameter(name, nn.Parameter(frequencies))
 
-    def forward(self, X_train, y_train, X_test):
+    def forward(
+        self,
+        X_train: torch.Tensor,
+        y_train: torch.Tensor,
+        X_test: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        todo
+        """
         batch_size, _ = y_train.shape
         _, num_train_rows, _ = X_train.shape
         _, num_test_rows, _ = X_test.shape

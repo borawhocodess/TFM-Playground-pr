@@ -99,7 +99,14 @@ class WandbLoggerCallback(BaseLoggerCallback):
 
 
 class ExperimentCallback(BaseLoggerCallback):
+    """
+    keeps experiment informed of training progress
+    """
+
     def __init__(self, experiment: Experiment) -> None:
+        """
+        starts experiment log for this run
+        """
         self.experiment = experiment
         self.experiment.print0(f"experiment: {self.experiment.id}", console=True)
 
@@ -111,20 +118,36 @@ class ExperimentCallback(BaseLoggerCallback):
         model: TabularFoundationModel,
         **kwargs,
     ) -> None:
+        """
+        records progress of one epoch
+        """
         self.experiment.print0(f"e:{epoch} l:{loss:.4f} e_t:{epoch_time:.2f}s")
 
     def close(self) -> None:
+        """
+        closes run with time it took
+        """
         minutes = (datetime.now() - self.experiment.started).total_seconds() / 60
         self.experiment.print0(f"runtime: {minutes:.2f} mins")
 
 
 class ExperimentEvaluationCallback(ExperimentCallback):
+    """
+    measures how good model is while it trains
+    """
+
     def __init__(self, experiment: Experiment, config: EvaluationConfig, device: torch.device) -> None:
+        """
+        takes what evaluation needs
+        """
         super().__init__(experiment)
         self.config = config
         self.device = device
 
     def predictions(self, model: TabularClassifier | TabularRegressor) -> dict[str, tuple]:
+        """
+        asks model to predict tasks chosen for evaluation
+        """
         return get_openml_predictions(
             model=model,
             tasks=task_ids(self.config.tasks, self.problem),
@@ -133,6 +156,9 @@ class ExperimentEvaluationCallback(ExperimentCallback):
         )
 
     def evaluate(self, model: TabularFoundationModel, **kwargs) -> list[float]:
+        """
+        leaves scoring to subclass, because metric follows problem
+        """
         raise NotImplementedError
 
     def on_epoch_end(
@@ -143,6 +169,9 @@ class ExperimentEvaluationCallback(ExperimentCallback):
         model: TabularFoundationModel,
         **kwargs,
     ) -> None:
+        """
+        scores model and records how good this epoch was
+        """
         scores = self.evaluate(model, **kwargs)
         if not scores:
             raise ValueError("scores are empty, nothing to average")
@@ -153,10 +182,17 @@ class ExperimentEvaluationCallback(ExperimentCallback):
 
 
 class ClassifierExperimentEvaluationCallback(ExperimentEvaluationCallback):
+    """
+    measures classifier quality with roc auc
+    """
+
     problem = "classification"
     metric = "roc_auc"
 
     def evaluate(self, model: TabularFoundationModel, **kwargs) -> list[float]:
+        """
+        scores model as classifier on every task
+        """
         classifier = TabularClassifier(model, self.device)
         predictions = self.predictions(classifier)
         scores = [roc_auc_score(y_true, y_proba, multi_class="ovr") for y_true, _, y_proba in predictions.values()]
@@ -164,10 +200,17 @@ class ClassifierExperimentEvaluationCallback(ExperimentEvaluationCallback):
 
 
 class RegressorExperimentEvaluationCallback(ExperimentEvaluationCallback):
+    """
+    measures regressor quality with r2
+    """
+
     problem = "regression"
     metric = "r2"
 
     def evaluate(self, model: TabularFoundationModel, **kwargs) -> list[float]:
+        """
+        scores model as regressor on every task
+        """
         regressor = TabularRegressor(model, device=self.device)
         predictions = self.predictions(regressor)
         scores = [r2_score(y_true, y_pred) for y_true, y_pred, _ in predictions.values()]

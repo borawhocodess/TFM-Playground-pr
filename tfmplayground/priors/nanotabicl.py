@@ -39,6 +39,7 @@ import torch.nn.functional as F
 from numpy.random import randint
 from sklearn.ensemble import ExtraTreesRegressor
 
+from tfmplayground.configs.priors import NanoTabICLPriorConfig
 from tfmplayground.priors.base import Prior
 from tfmplayground.utils import get_default_device
 
@@ -366,13 +367,19 @@ def rand_weights(n_batch: int, n: int) -> torch.Tensor:
 
 
 class NanoTabICLPrior(Prior):
-    def __init__(self, config, device=None):
+    def __init__(self, config: NanoTabICLPriorConfig, device: torch.device | None = None) -> None:
+        """
+        todo
+        """
         self.config = config
         self.device = device if device is not None else get_default_device()
         if not 0 < self.config.train_fraction_min <= self.config.train_fraction_max < 1:
             raise ValueError("train fractions must be 0 < min <= max < 1")
 
-    def hyperparameters(self):
+    def hyperparameters(self) -> None:
+        """
+        todo
+        """
         c = self.config
         self.num_features = c.num_features
         self.num_datapoints_max = c.num_datapoints_max
@@ -384,18 +391,27 @@ class NanoTabICLPrior(Prior):
             binary = c.max_num_classes == 2 or np.random.rand() < 0.5
             self.num_classes = 2 if binary else int(np.random.randint(3, c.max_num_classes + 1))
 
-    def target(self, columns):
+    def target(self, columns: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        todo
+        """
         x = torch.cat([columns[f"x_{i}"] for i in range(self.num_features)], dim=-1)
         y = columns["y_0"].squeeze(-1)
         return x.float(), y.float()
 
-    def dataset(self):
+    def dataset(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        todo
+        """
         cat_sizes = rand_cat_sizes(self.num_features)
         columns = rand_dataset_filtered(cat_sizes, [self.num_classes], self.num_datapoints_max)
         x, y = self.target(columns)
         return x, y
 
-    def batch(self, batch_size):
+    def batch(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        todo
+        """
         self.hyperparameters()
         datasets = [self.dataset() for _ in range(batch_size)]
         x = torch.stack([d[0] for d in datasets]).to(self.device)

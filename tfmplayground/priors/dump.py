@@ -10,9 +10,13 @@ from tfmplayground.utils import get_default_device
 
 
 class DumpPrior(Prior):
+    """
+    adapts h5 dumps of prior batches to prior interface
+    """
+
     def __init__(self, config: PriorDumpConfig, device: torch.device | None = None) -> None:
         """
-        todo
+        reads sizes and keys from dump and checks its problem against config
         """
         self.config = config
         with h5py.File(config.filename, "r") as f:
@@ -30,7 +34,7 @@ class DumpPrior(Prior):
 
     def check_batch_size(self, batch_size: int) -> None:
         """
-        todo
+        checks that batch size fits dump and divides its block size
         """
         if batch_size > self.num_tables:
             raise ValueError(f"batch size {batch_size} is larger than {self.num_tables} tables in dump")
@@ -39,7 +43,9 @@ class DumpPrior(Prior):
 
     def batch(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        todo
+        gives next batch of tables from dump, split into train and test parts
+
+        starts dump again at its end, so batches never run out
         """
         self.check_batch_size(batch_size)
         if self.pointer + batch_size > self.num_tables:

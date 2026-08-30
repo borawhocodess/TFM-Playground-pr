@@ -3,6 +3,10 @@ from dataclasses import dataclass
 
 @dataclass
 class NanoTabICLPriorConfig:
+    """
+    parameters nanotabicl priors share
+    """
+
     num_datapoints_max: int = 1000
     num_features: int = 20
     train_fraction_min: float = 0.1
@@ -11,18 +15,30 @@ class NanoTabICLPriorConfig:
 
 @dataclass
 class NanoTabICLClassificationPriorConfig(NanoTabICLPriorConfig):
+    """
+    nanotabicl prior parameters for classification
+    """
+
     problem: str = "classification"
     max_num_classes: int = 10
 
 
 @dataclass
 class NanoTabICLRegressionPriorConfig(NanoTabICLPriorConfig):
+    """
+    nanotabicl prior parameters for regression
+    """
+
     problem: str = "regression"
     max_num_classes: int = 0
 
 
 @dataclass
 class TabICLPriorConfig:
+    """
+    parameters tabicl priors share
+    """
+
     num_datapoints_min: int = 128
     num_datapoints_max: int = 1024
     num_features_min: int = 2
@@ -35,29 +51,49 @@ class TabICLPriorConfig:
 
 @dataclass
 class TabICLClassificationPriorConfig(TabICLPriorConfig):
+    """
+    tabicl prior parameters for classification
+    """
+
     problem: str = "classification"
     max_num_classes: int = 10
 
 
 @dataclass
 class TabICLRegressionPriorConfig(TabICLPriorConfig):
+    """
+    tabicl prior parameters for regression
+    """
+
     problem: str = "regression"
     max_num_classes: int = 0
 
 
 @dataclass
 class PriorDumpConfig:
+    """
+    parameters prior dumps share
+    """
+
     filename: str = ""
     starting_index: int = 0
 
 
 @dataclass
 class ClassificationPriorDumpConfig(PriorDumpConfig):
+    """
+    prior dump parameters for classification
+    """
+
     problem: str = "classification"
     filename: str = "50x3_3_100k_classification.h5"
 
 
 @dataclass
 class RegressionPriorDumpConfig(PriorDumpConfig):
+    """
+    prior dump parameters for regression
+    """
+
     problem: str = "regression"
     filename: str = "50x3_1280k_regression.h5"

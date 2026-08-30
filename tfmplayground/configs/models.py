@@ -3,6 +3,10 @@ from dataclasses import dataclass
 
 @dataclass
 class NanoTabPFNModelConfig:
+    """
+    parameters nanotabpfn models share
+    """
+
     embedding_size: int = 192
     num_attention_heads: int = 6
     mlp_hidden_size: int = 768
@@ -11,12 +15,20 @@ class NanoTabPFNModelConfig:
 
 @dataclass
 class NanoTabPFNClassifierConfig(NanoTabPFNModelConfig):
+    """
+    nanotabpfn parameters for classification
+    """
+
     problem: str = "classification"
     num_outputs: int = 10
 
 
 @dataclass
 class NanoTabPFNRegressorConfig(NanoTabPFNModelConfig):
+    """
+    nanotabpfn parameters for regression
+    """
+
     problem: str = "regression"
     head: str = "buckets"
     num_outputs: int = 1000
@@ -24,6 +36,10 @@ class NanoTabPFNRegressorConfig(NanoTabPFNModelConfig):
 
 @dataclass
 class TabICLModelConfig:
+    """
+    parameters tabicl models share
+    """
+
     num_quantiles: int = 999
     embed_dim: int = 128
     col_num_blocks: int = 3
@@ -53,12 +69,20 @@ class TabICLModelConfig:
 
 @dataclass
 class TabICLClassifierConfig(TabICLModelConfig):
+    """
+    tabicl parameters for classification
+    """
+
     problem: str = "classification"
     max_classes: int = 10
 
 
 @dataclass
 class TabICLRegressorConfig(TabICLModelConfig):
+    """
+    tabicl parameters for regression
+    """
+
     problem: str = "regression"
     head: str = "quantiles"
     max_classes: int = 0
@@ -66,6 +90,10 @@ class TabICLRegressorConfig(TabICLModelConfig):
 
 @dataclass
 class NanoTabICLModelConfig:
+    """
+    parameters nanotabicl models share
+    """
+
     embed_dim: int = 128
     col_num_blocks: int = 3
     row_num_blocks: int = 3
@@ -80,6 +108,10 @@ class NanoTabICLModelConfig:
 
 @dataclass
 class NanoTabICLClassifierConfig(NanoTabICLModelConfig):
+    """
+    nanotabicl parameters for classification
+    """
+
     problem: str = "classification"
     max_classes: int = 10
     out_dim: int = 10
@@ -87,6 +119,10 @@ class NanoTabICLClassifierConfig(NanoTabICLModelConfig):
 
 @dataclass
 class NanoTabICLRegressorConfig(NanoTabICLModelConfig):
+    """
+    nanotabicl parameters for regression
+    """
+
     problem: str = "regression"
     head: str = "quantiles"
     max_classes: int = 0
@@ -95,6 +131,27 @@ class NanoTabICLRegressorConfig(NanoTabICLModelConfig):
 
 @dataclass
 class ModdedNanoTabPFNModelConfig:
+    """
+    parameters moddednanotabpfn models share
+
+    Attributes
+    ----------
+    l : int
+        number of transformer layers
+    a : int
+        number of attention heads
+    e : int
+        embedding size
+    h : int
+        mlp hidden size
+    residual_decay : float
+        decay of residual stream per layer, 1.0 gives no decay
+    thinking_rows : int
+        number of learned rows added to each table
+    feature_group_size : int
+        number of features embedded together
+    """
+
     l: int = 5
     a: int = 4
     e: int = 256
@@ -106,12 +163,20 @@ class ModdedNanoTabPFNModelConfig:
 
 @dataclass
 class ModdedNanoTabPFNClassifierConfig(ModdedNanoTabPFNModelConfig):
+    """
+    moddednanotabpfn parameters for classification
+    """
+
     problem: str = "classification"
     o: int = 10
 
 
 @dataclass
 class ModdedNanoTabPFNRegressorConfig(ModdedNanoTabPFNModelConfig):
+    """
+    moddednanotabpfn parameters for regression
+    """
+
     problem: str = "regression"
     head: str = "buckets"
     o: int = 999
@@ -119,6 +184,10 @@ class ModdedNanoTabPFNRegressorConfig(ModdedNanoTabPFNModelConfig):
 
 @dataclass
 class TabFMModelConfig:
+    """
+    parameters tabfm models share
+    """
+
     fourier_sigma: float = 1.0
     embed_dim: int = 8
     max_classes: int = 3
@@ -138,12 +207,20 @@ class TabFMModelConfig:
 
 @dataclass
 class TabFMClassifierConfig(TabFMModelConfig):
+    """
+    tabfm parameters for classification
+    """
+
     problem: str = "classification"
     is_classifier: bool = True
 
 
 @dataclass
 class TabFMRegressorConfig(TabFMModelConfig):
+    """
+    tabfm parameters for regression
+    """
+
     problem: str = "regression"
     head: str = "scalar"
     is_classifier: bool = False

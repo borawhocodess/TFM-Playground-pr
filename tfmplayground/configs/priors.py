@@ -4,7 +4,7 @@ from dataclasses import dataclass
 @dataclass
 class NanoTabICLPriorConfig:
     """
-    parameters nanotabicl priors share
+    settings nanotabicl priors share
     """
 
     num_datapoints_max: int = 1000
@@ -16,7 +16,7 @@ class NanoTabICLPriorConfig:
 @dataclass
 class NanoTabICLClassificationPriorConfig(NanoTabICLPriorConfig):
     """
-    nanotabicl prior parameters for classification
+    nanotabicl prior settings for classification
     """
 
     problem: str = "classification"
@@ -26,7 +26,7 @@ class NanoTabICLClassificationPriorConfig(NanoTabICLPriorConfig):
 @dataclass
 class NanoTabICLRegressionPriorConfig(NanoTabICLPriorConfig):
     """
-    nanotabicl prior parameters for regression
+    nanotabicl prior settings for regression
     """
 
     problem: str = "regression"
@@ -36,7 +36,7 @@ class NanoTabICLRegressionPriorConfig(NanoTabICLPriorConfig):
 @dataclass
 class TabICLPriorConfig:
     """
-    parameters tabicl priors share
+    settings tabicl priors share
     """
 
     num_datapoints_min: int = 128
@@ -52,7 +52,7 @@ class TabICLPriorConfig:
 @dataclass
 class TabICLClassificationPriorConfig(TabICLPriorConfig):
     """
-    tabicl prior parameters for classification
+    tabicl prior settings for classification
     """
 
     problem: str = "classification"
@@ -62,7 +62,7 @@ class TabICLClassificationPriorConfig(TabICLPriorConfig):
 @dataclass
 class TabICLRegressionPriorConfig(TabICLPriorConfig):
     """
-    tabicl prior parameters for regression
+    tabicl prior settings for regression
     """
 
     problem: str = "regression"
@@ -72,7 +72,7 @@ class TabICLRegressionPriorConfig(TabICLPriorConfig):
 @dataclass
 class PriorDumpConfig:
     """
-    parameters prior dumps share
+    settings prior dumps share
     """
 
     filename: str = ""
@@ -82,7 +82,7 @@ class PriorDumpConfig:
 @dataclass
 class ClassificationPriorDumpConfig(PriorDumpConfig):
     """
-    prior dump parameters for classification
+    prior dump settings for classification
     """
 
     problem: str = "classification"
@@ -92,7 +92,7 @@ class ClassificationPriorDumpConfig(PriorDumpConfig):
 @dataclass
 class RegressionPriorDumpConfig(PriorDumpConfig):
     """
-    prior dump parameters for regression
+    prior dump settings for regression
     """
 
     problem: str = "regression"

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 @dataclass
 class TrainingConfig:
     """
-    parameters training runs share
+    settings training runs share
     """
 
     seed: int = 2402
@@ -17,7 +17,7 @@ class TrainingConfig:
 @dataclass
 class ClassificationTrainingConfig(TrainingConfig):
     """
-    training parameters for classification
+    training settings for classification
     """
 
     problem: str = "classification"
@@ -27,7 +27,7 @@ class ClassificationTrainingConfig(TrainingConfig):
 @dataclass
 class RegressionTrainingConfig(TrainingConfig):
     """
-    training parameters for regression
+    training settings for regression
     """
 
     problem: str = "regression"
@@ -40,7 +40,7 @@ class RegressionTrainingConfig(TrainingConfig):
 @dataclass
 class ExperimentConfig:
     """
-    parameters experiment tracking shares
+    settings experiment tracking shares
     """
 
     name: str = "test"
@@ -50,7 +50,7 @@ class ExperimentConfig:
 @dataclass
 class ClassificationExperimentConfig(ExperimentConfig):
     """
-    experiment parameters for classification
+    experiment settings for classification
     """
 
     problem: str = "classification"
@@ -59,7 +59,7 @@ class ClassificationExperimentConfig(ExperimentConfig):
 @dataclass
 class RegressionExperimentConfig(ExperimentConfig):
     """
-    experiment parameters for regression
+    experiment settings for regression
     """
 
     problem: str = "regression"

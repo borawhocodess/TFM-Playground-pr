@@ -4,7 +4,7 @@ from dataclasses import dataclass
 @dataclass
 class NanoTabPFNModelConfig:
     """
-    parameters nanotabpfn models share
+    settings nanotabpfn models share
     """
 
     embedding_size: int = 192
@@ -16,7 +16,7 @@ class NanoTabPFNModelConfig:
 @dataclass
 class NanoTabPFNClassifierConfig(NanoTabPFNModelConfig):
     """
-    nanotabpfn parameters for classification
+    nanotabpfn settings for classification
     """
 
     problem: str = "classification"
@@ -26,7 +26,7 @@ class NanoTabPFNClassifierConfig(NanoTabPFNModelConfig):
 @dataclass
 class NanoTabPFNRegressorConfig(NanoTabPFNModelConfig):
     """
-    nanotabpfn parameters for regression
+    nanotabpfn settings for regression
     """
 
     problem: str = "regression"
@@ -37,7 +37,7 @@ class NanoTabPFNRegressorConfig(NanoTabPFNModelConfig):
 @dataclass
 class TabICLModelConfig:
     """
-    parameters tabicl models share
+    settings tabicl models share
     """
 
     num_quantiles: int = 999
@@ -70,7 +70,7 @@ class TabICLModelConfig:
 @dataclass
 class TabICLClassifierConfig(TabICLModelConfig):
     """
-    tabicl parameters for classification
+    tabicl settings for classification
     """
 
     problem: str = "classification"
@@ -80,7 +80,7 @@ class TabICLClassifierConfig(TabICLModelConfig):
 @dataclass
 class TabICLRegressorConfig(TabICLModelConfig):
     """
-    tabicl parameters for regression
+    tabicl settings for regression
     """
 
     problem: str = "regression"
@@ -91,7 +91,7 @@ class TabICLRegressorConfig(TabICLModelConfig):
 @dataclass
 class NanoTabICLModelConfig:
     """
-    parameters nanotabicl models share
+    settings nanotabicl models share
     """
 
     embed_dim: int = 128
@@ -109,7 +109,7 @@ class NanoTabICLModelConfig:
 @dataclass
 class NanoTabICLClassifierConfig(NanoTabICLModelConfig):
     """
-    nanotabicl parameters for classification
+    nanotabicl settings for classification
     """
 
     problem: str = "classification"
@@ -120,7 +120,7 @@ class NanoTabICLClassifierConfig(NanoTabICLModelConfig):
 @dataclass
 class NanoTabICLRegressorConfig(NanoTabICLModelConfig):
     """
-    nanotabicl parameters for regression
+    nanotabicl settings for regression
     """
 
     problem: str = "regression"
@@ -132,7 +132,7 @@ class NanoTabICLRegressorConfig(NanoTabICLModelConfig):
 @dataclass
 class ModdedNanoTabPFNModelConfig:
     """
-    parameters moddednanotabpfn models share
+    settings moddednanotabpfn models share
 
     Attributes
     ----------
@@ -164,7 +164,7 @@ class ModdedNanoTabPFNModelConfig:
 @dataclass
 class ModdedNanoTabPFNClassifierConfig(ModdedNanoTabPFNModelConfig):
     """
-    moddednanotabpfn parameters for classification
+    moddednanotabpfn settings for classification
     """
 
     problem: str = "classification"
@@ -174,7 +174,7 @@ class ModdedNanoTabPFNClassifierConfig(ModdedNanoTabPFNModelConfig):
 @dataclass
 class ModdedNanoTabPFNRegressorConfig(ModdedNanoTabPFNModelConfig):
     """
-    moddednanotabpfn parameters for regression
+    moddednanotabpfn settings for regression
     """
 
     problem: str = "regression"
@@ -185,7 +185,7 @@ class ModdedNanoTabPFNRegressorConfig(ModdedNanoTabPFNModelConfig):
 @dataclass
 class TabFMModelConfig:
     """
-    parameters tabfm models share
+    settings tabfm models share
     """
 
     fourier_sigma: float = 1.0
@@ -208,7 +208,7 @@ class TabFMModelConfig:
 @dataclass
 class TabFMClassifierConfig(TabFMModelConfig):
     """
-    tabfm parameters for classification
+    tabfm settings for classification
     """
 
     problem: str = "classification"
@@ -218,7 +218,7 @@ class TabFMClassifierConfig(TabFMModelConfig):
 @dataclass
 class TabFMRegressorConfig(TabFMModelConfig):
     """
-    tabfm parameters for regression
+    tabfm settings for regression
     """
 
     problem: str = "regression"

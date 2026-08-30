@@ -4,7 +4,7 @@ from dataclasses import dataclass
 @dataclass
 class EvaluationConfig:
     """
-    parameters that evaluation processes use
+    settings that evaluation processes use
     """
 
     tasks: str | list = "toy"

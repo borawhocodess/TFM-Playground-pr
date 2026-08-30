@@ -79,7 +79,7 @@ def make_bucket_borders(
     outlier_threshold: float,
 ) -> torch.Tensor:
     """
-    learns bucket borders from targets that prior gives
+    finds bucket borders from targets that prior gives
     """
     normalized_targets = []
     collected = 0
@@ -147,7 +147,7 @@ class BarDistribution(nn.Module):
         ignore_nan_targets: bool = True,
     ) -> None:
         """
-        checks borders and keeps them
+        makes sure borders can make bars that have width
         """
         super().__init__()
         borders = torch.as_tensor(borders)
@@ -325,7 +325,9 @@ class ScalarMSELoss(nn.MSELoss):
 
 
 class QuantileLoss(nn.Module):
-    """Pinball loss averaged over a fixed grid of quantile levels."""
+    """
+    pinball loss averaged over a fixed grid of quantile levels
+    """
 
     def __init__(self, n_quantiles: int) -> None:
         """

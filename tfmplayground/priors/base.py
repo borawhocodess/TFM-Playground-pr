@@ -5,36 +5,48 @@ import torch
 
 
 class Prior(ABC):
+    """
+    base class for every prior this package trains on
+    """
+
     config = None
 
     @abstractmethod
     def batch(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        todo
+        gives one batch of tables, split into train and test parts
         """
         ...
 
 
 class PriorDataLoader:
+    """
+    turns prior into endless iterator of batches
+    """
+
     def __init__(self, prior: Prior, batch_size: int) -> None:
         """
-        todo
+        keeps prior and batch size
         """
         self.prior = prior
         self.batch_size = batch_size
 
     def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
         """
-        todo
+        gives batches from prior without end
         """
         while True:
             yield self.prior.batch(self.batch_size)
 
 
 class DictPrior(Prior):
+    """
+    adapts loaders that give dict batches to prior interface
+    """
+
     def __init__(self, loader: Iterable[dict]) -> None:
         """
-        todo
+        keeps loader and starts its iterator
         """
         self.loader = loader
         self.batches = iter(loader)
@@ -42,7 +54,9 @@ class DictPrior(Prior):
 
     def batch(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        todo
+        gives next dict batch from loader, split at train test index
+
+        starts loader again at its end, so batches never run out
         """
         try:
             d = next(self.batches)

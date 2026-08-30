@@ -1,30 +1,49 @@
 from abc import ABC, abstractmethod
+from collections.abc import Iterable, Iterator
+
+import torch
 
 
 class Prior(ABC):
     config = None
 
     @abstractmethod
-    def batch(self, batch_size): ...
+    def batch(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        todo
+        """
+        ...
 
 
 class PriorDataLoader:
-    def __init__(self, prior, batch_size):
+    def __init__(self, prior: Prior, batch_size: int) -> None:
+        """
+        todo
+        """
         self.prior = prior
         self.batch_size = batch_size
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+        """
+        todo
+        """
         while True:
             yield self.prior.batch(self.batch_size)
 
 
 class DictPrior(Prior):
-    def __init__(self, loader):
+    def __init__(self, loader: Iterable[dict]) -> None:
+        """
+        todo
+        """
         self.loader = loader
         self.batches = iter(loader)
         self.config = getattr(loader, "config", None)
 
-    def batch(self, batch_size):
+    def batch(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        todo
+        """
         try:
             d = next(self.batches)
         except StopIteration:

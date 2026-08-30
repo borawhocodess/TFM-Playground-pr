@@ -51,7 +51,7 @@ def default_callback(
     problem: str,
     experiment: Experiment,
     config: EvaluationConfig,
-    device: torch.device,
+    device: str | torch.device,
 ) -> ExperimentEvaluationCallback:
     """
     gives evaluation callback that matches problem
@@ -86,7 +86,7 @@ def default_criterion(
     model: TabularFoundationModel,
     prior: Prior,
     training: TrainingConfig,
-    device: torch.device,
+    device: str | torch.device,
 ) -> nn.Module:
     """
     gives loss that matches problem
@@ -116,7 +116,7 @@ def pretrainTFM(
     eval: EvaluationConfig | None = None,
     training: TrainingConfig | None = None,
     experiment: ExperimentConfig | None = None,
-    device: torch.device | None = None,
+    device: str | torch.device | None = None,
 ) -> TabularFoundationModel:
     """
     pretrains model on prior and gives it back trained

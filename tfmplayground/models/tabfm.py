@@ -2,7 +2,7 @@ import torch
 from tabfm.src.pytorch.model import TabFM
 from torch import nn
 
-from tfmplayground.configs.models import TabFMModelConfig
+from tfmplayground.configs.models import TabFMClassifierConfig, TabFMRegressorConfig
 from tfmplayground.models.base import TabularFoundationModel
 
 
@@ -11,7 +11,7 @@ class TabFMModel(TabFM, TabularFoundationModel):
     adapts tabfm to tabularfoundationmodel interface
     """
 
-    def __init__(self, config: TabFMModelConfig) -> None:
+    def __init__(self, config: TabFMClassifierConfig | TabFMRegressorConfig) -> None:
         """
         builds tabfm from config and makes its fourier frequencies random
         """

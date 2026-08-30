@@ -5,7 +5,7 @@ import torch
 from tabicl._model.tabicl import TabICL
 from torch import nn
 
-from tfmplayground.configs.models import TabICLModelConfig
+from tfmplayground.configs.models import TabICLClassifierConfig, TabICLRegressorConfig
 from tfmplayground.models.base import TabularFoundationModel
 
 
@@ -14,7 +14,7 @@ class TabICLModel(TabICL, TabularFoundationModel):
     adapts tabicl to tabularfoundationmodel interface
     """
 
-    def __init__(self, config: TabICLModelConfig) -> None:
+    def __init__(self, config: TabICLClassifierConfig | TabICLRegressorConfig) -> None:
         """
         builds tabicl from config and reserves its borders
         """

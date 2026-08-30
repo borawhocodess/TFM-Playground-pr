@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.modules.transformer import LayerNorm, Linear, MultiheadAttention
 
-from tfmplayground.configs.models import NanoTabPFNModelConfig
+from tfmplayground.configs.models import NanoTabPFNClassifierConfig, NanoTabPFNRegressorConfig
 from tfmplayground.models.base import TabularFoundationModel
 
 
@@ -164,7 +164,7 @@ class NanoTabPFNModel(NanoTabPFN, TabularFoundationModel):
     adapts nanotabpfn to tabularfoundationmodel interface
     """
 
-    def __init__(self, config: NanoTabPFNModelConfig) -> None:
+    def __init__(self, config: NanoTabPFNClassifierConfig | NanoTabPFNRegressorConfig) -> None:
         """
         builds nanotabpfn from config and reserves its borders
         """

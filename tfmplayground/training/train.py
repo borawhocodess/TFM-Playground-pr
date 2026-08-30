@@ -25,7 +25,7 @@ def train(
     steps_per_epoch: int,
     lr: float,
     grad_clip: float,
-    device: torch.device | None = None,
+    device: str | torch.device | None = None,
     callbacks: list[Callback] | None = None,
     experiment: Experiment | None = None,
 ) -> TabularFoundationModel:

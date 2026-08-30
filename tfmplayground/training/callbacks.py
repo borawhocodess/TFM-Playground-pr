@@ -136,7 +136,12 @@ class ExperimentEvaluationCallback(ExperimentCallback):
     measures how good model is while it trains
     """
 
-    def __init__(self, experiment: Experiment, config: EvaluationConfig, device: torch.device) -> None:
+    def __init__(
+        self,
+        experiment: Experiment,
+        config: EvaluationConfig,
+        device: str | torch.device,
+    ) -> None:
         """
         takes what evaluation needs
         """

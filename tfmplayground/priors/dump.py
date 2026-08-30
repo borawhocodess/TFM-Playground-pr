@@ -14,7 +14,11 @@ class DumpPrior(Prior):
     adapts h5 dumps of prior batches to prior interface
     """
 
-    def __init__(self, config: PriorDumpConfig, device: torch.device | None = None) -> None:
+    def __init__(
+        self,
+        config: PriorDumpConfig,
+        device: str | torch.device | None = None,
+    ) -> None:
         """
         reads sizes and keys from dump and checks its problem against config
         """

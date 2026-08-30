@@ -36,7 +36,7 @@ import typing
 import torch
 import torch.nn as nn
 
-from tfmplayground.configs.models import NanoTabICLModelConfig
+from tfmplayground.configs.models import NanoTabICLClassifierConfig, NanoTabICLRegressorConfig
 from tfmplayground.models.base import TabularFoundationModel
 
 
@@ -206,7 +206,7 @@ class NanoTabICLModel(NanoTabICLv2, TabularFoundationModel):
     adapts vendored nanotabicl to tabularfoundationmodel interface
     """
 
-    def __init__(self, config: NanoTabICLModelConfig) -> None:
+    def __init__(self, config: NanoTabICLClassifierConfig | NanoTabICLRegressorConfig) -> None:
         """
         builds vendored nanotabicl from config and reserves its borders
         """

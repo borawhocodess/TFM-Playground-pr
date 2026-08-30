@@ -5,7 +5,7 @@ from tabicl.prior import PriorDataset as TabICLPriorDataset
 from tabicl.prior.graph_lib._config import PriorConfig as TabICLPriorDatasetConfig
 from torch.utils.data import DataLoader
 
-from tfmplayground.configs.priors import TabICLPriorConfig
+from tfmplayground.configs.priors import TabICLClassificationPriorConfig, TabICLRegressionPriorConfig
 from tfmplayground.priors.base import Prior
 from tfmplayground.utils import get_default_device
 
@@ -86,7 +86,11 @@ class TabICLPrior(Prior):
     adapts tabicl prior dataset to prior interface
     """
 
-    def __init__(self, config: TabICLPriorConfig, device: torch.device | None = None) -> None:
+    def __init__(
+        self,
+        config: TabICLClassificationPriorConfig | TabICLRegressionPriorConfig,
+        device: str | torch.device | None = None,
+    ) -> None:
         """
         keeps config, and checks datapoint limits
         """

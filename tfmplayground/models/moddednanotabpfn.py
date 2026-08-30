@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from tfmplayground.configs.models import ModdedNanoTabPFNModelConfig
+from tfmplayground.configs.models import ModdedNanoTabPFNClassifierConfig, ModdedNanoTabPFNRegressorConfig
 from tfmplayground.models.base import TabularFoundationModel
 
 
@@ -215,7 +215,7 @@ class ModdedNanoTabPFNModel(ModdedNanoTabPFN, TabularFoundationModel):
     adapts moddednanotabpfn to tabularfoundationmodel interface
     """
 
-    def __init__(self, config: ModdedNanoTabPFNModelConfig) -> None:
+    def __init__(self, config: ModdedNanoTabPFNClassifierConfig | ModdedNanoTabPFNRegressorConfig) -> None:
         """
         builds moddednanotabpfn from config and reserves its borders
         """

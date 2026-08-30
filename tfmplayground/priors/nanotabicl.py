@@ -39,7 +39,7 @@ import torch.nn.functional as F
 from numpy.random import randint
 from sklearn.ensemble import ExtraTreesRegressor
 
-from tfmplayground.configs.priors import NanoTabICLPriorConfig
+from tfmplayground.configs.priors import NanoTabICLClassificationPriorConfig, NanoTabICLRegressionPriorConfig
 from tfmplayground.priors.base import Prior
 from tfmplayground.utils import get_default_device
 
@@ -371,7 +371,11 @@ class NanoTabICLPrior(Prior):
     adapts nanotabicl samplers to prior interface
     """
 
-    def __init__(self, config: NanoTabICLPriorConfig, device: torch.device | None = None) -> None:
+    def __init__(
+        self,
+        config: NanoTabICLClassificationPriorConfig | NanoTabICLRegressionPriorConfig,
+        device: str | torch.device | None = None,
+    ) -> None:
         """
         keeps config, and checks train fractions
         """

@@ -101,6 +101,31 @@ def pretrainTFM(
     experiment: ExperimentConfig | None = None,
     device: torch.device | None = None,
 ) -> TabularFoundationModel:
+    """
+    pretrains model on prior and gives it back trained
+
+    Parameters
+    ----------
+    problem : str
+        classification or regression
+    model : TabularFoundationModel
+        model to pretrain
+    prior : Prior
+        prior that gives training tables
+    eval : EvaluationConfig, optional
+        tasks and their limits for periodic evaluations
+    training : TrainingConfig, optional
+        seed, sizes and limits for training loop
+    experiment : ExperimentConfig, optional
+        name and directory for experiment artifact tracking
+    device : torch.device, optional
+        device that holds model and training batches
+
+    Returns
+    -------
+    TabularFoundationModel
+        pretrained model ready for inference
+    """
     check_problems(problem, model, prior, training, experiment)
     experimentconfig = experiment if experiment is not None else default_experiment(problem)
     experiment = Experiment(config=experimentconfig)

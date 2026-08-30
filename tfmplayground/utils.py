@@ -6,6 +6,7 @@ from dataclasses import asdict
 from datetime import datetime
 from importlib.metadata import version
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import h5py
 import numpy as np
@@ -14,6 +15,11 @@ from torch import nn
 
 from tfmplayground import models
 from tfmplayground.configs import models as model_configs
+from tfmplayground.configs.training import ExperimentConfig
+from tfmplayground.models.base import TabularFoundationModel
+
+if TYPE_CHECKING:
+    from tfmplayground.priors.base import Prior
 
 
 def set_randomness_seed(seed):
@@ -31,7 +37,7 @@ def get_default_device():
     return device
 
 
-def compute_bucket_borders(num_buckets, ys):
+def compute_bucket_borders(num_buckets: int, ys: torch.Tensor) -> torch.Tensor:
     """
     decides equal mass bucket borders from ys
     inspired by pfns.model.bar_distribution get_bucket_borders
@@ -64,7 +70,13 @@ def compute_bucket_borders(num_buckets, ys):
     return borders
 
 
-def make_bucket_borders(prior, num_buckets, batch_size, min_targets, outlier_threshold):
+def make_bucket_borders(
+    prior: "Prior",
+    num_buckets: int,
+    batch_size: int,
+    min_targets: int,
+    outlier_threshold: float,
+) -> torch.Tensor:
     normalized_targets = []
     collected = 0
     while collected < min_targets:
@@ -123,7 +135,12 @@ class BarDistribution(nn.Module):
     inspired by pfns.model.bar_distribution BarDistribution
     """
 
-    def __init__(self, borders, *, ignore_nan_targets=True):
+    def __init__(
+        self,
+        borders: torch.Tensor,
+        *,
+        ignore_nan_targets: bool = True,
+    ) -> None:
         super().__init__()
         borders = torch.as_tensor(borders)
         if borders.ndim != 1:
@@ -137,14 +154,14 @@ class BarDistribution(nn.Module):
         self.ignore_nan_targets = ignore_nan_targets
 
     @property
-    def bar_widths(self):
+    def bar_widths(self) -> torch.Tensor:
         return self.borders[1:] - self.borders[:-1]
 
     @property
-    def num_bars(self):
+    def num_bars(self) -> int:
         return self.borders.numel() - 1
 
-    def _ignore_init(self, y):
+    def _ignore_init(self, y: torch.Tensor) -> torch.Tensor:
         """
         makes ignore mask for nan targets and alters y (will be ignored later)
         """
@@ -155,7 +172,7 @@ class BarDistribution(nn.Module):
             y[ignore_mask] = self.borders[0]
         return ignore_mask
 
-    def _map_to_bar_indices(self, y):
+    def _map_to_bar_indices(self, y: torch.Tensor) -> torch.Tensor:
         """
         maps each y to its corresponding bar index
         """
@@ -163,7 +180,7 @@ class BarDistribution(nn.Module):
         indices = indices.clamp(0, self.num_bars - 1)
         return indices
 
-    def _compute_scaled_log_probs(self, logits):
+    def _compute_scaled_log_probs(self, logits: torch.Tensor) -> torch.Tensor:
         """
         log prob density
         """
@@ -180,11 +197,19 @@ class FullSupportBarDistribution(BarDistribution):
     inspired by pfns.model.bar_distribution FullSupportBarDistribution
     """
 
-    def __init__(self, borders: torch.Tensor, *, ignore_nan_targets: bool = True):
+    def __init__(
+        self,
+        borders: torch.Tensor,
+        *,
+        ignore_nan_targets: bool = True,
+    ) -> None:
         super().__init__(borders, ignore_nan_targets=ignore_nan_targets)
 
     @staticmethod
-    def _halfnormal_with_p_weight_before(desired_quantile_value_at_p, p=0.5):
+    def _halfnormal_with_p_weight_before(
+        desired_quantile_value_at_p: torch.Tensor,
+        p: float = 0.5,
+    ) -> torch.distributions.HalfNormal:
         """
         scales the half normal distribution so that the p weight is before the desired value
         """
@@ -196,7 +221,7 @@ class FullSupportBarDistribution(BarDistribution):
         scaled_halfnormal = torch.distributions.HalfNormal(scale)
         return scaled_halfnormal
 
-    def forward(self, logits, y):
+    def forward(self, logits: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """
         negative log likelihood of y given logits
         """
@@ -231,7 +256,7 @@ class FullSupportBarDistribution(BarDistribution):
         nll[ignore_mask] = 0.0
         return nll
 
-    def mean(self, logits):
+    def mean(self, logits: torch.Tensor) -> torch.Tensor:
         """
         calculates the expected value of the distribution given logits
         """
@@ -257,21 +282,21 @@ class FullSupportBarDistribution(BarDistribution):
 
 
 class ScalarMSELoss(nn.MSELoss):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(reduction="none")
 
-    def forward(self, logits, target):
+    def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         scalars = logits.reshape(target.shape)
         return super().forward(scalars, target)
 
-    def mean(self, logits):
+    def mean(self, logits: torch.Tensor) -> torch.Tensor:
         return logits.squeeze(-1)
 
 
 class QuantileLoss(nn.Module):
     """Pinball loss averaged over a fixed grid of quantile levels."""
 
-    def __init__(self, n_quantiles: int):
+    def __init__(self, n_quantiles: int) -> None:
         super().__init__()
         alphas = torch.arange(1, n_quantiles + 1, dtype=torch.float) / (n_quantiles + 1)
         self.register_buffer("alphas", alphas)
@@ -286,7 +311,9 @@ class QuantileLoss(nn.Module):
         return logits.mean(dim=-1)
 
 
-def make_regression_decoder(model):
+def make_regression_decoder(
+    model: TabularFoundationModel,
+) -> ScalarMSELoss | QuantileLoss | FullSupportBarDistribution:
     head = model.config.head
     if head == "scalar":
         return ScalarMSELoss()
@@ -297,7 +324,7 @@ def make_regression_decoder(model):
     raise ValueError(f"{head!r} head is not in (scalar, quantiles, buckets)")
 
 
-def load_model(path):
+def load_model(path: str | Path) -> TabularFoundationModel:
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
     model_class = getattr(models, checkpoint["model_class"])
     config_class = getattr(model_configs, checkpoint["config_class"])
@@ -307,7 +334,7 @@ def load_model(path):
 
 
 class Experiment:
-    def __init__(self, config):
+    def __init__(self, config: ExperimentConfig) -> None:
         self.started = datetime.now()
         timestamp = self.started.strftime("%y%m%d-%H%M%S")
         uid = uuid.uuid4().hex[:8]
@@ -321,7 +348,7 @@ class Experiment:
         self.best_checkpoint_path = self.dir / f"{self.id}-ckpt-best.pth"
         self.last_checkpoint_path = self.dir / f"{self.id}-ckpt-last.pth"
 
-    def log_configs(self, **configs):
+    def log_configs(self, **configs) -> None:
         for label, config in configs.items():
             if config is None:
                 continue
@@ -329,7 +356,7 @@ class Experiment:
             for name, value in asdict(config).items():
                 self.print0(f"  {name}: {value}")
 
-    def save_checkpoint(self, path, model):
+    def save_checkpoint(self, path: Path, model: TabularFoundationModel) -> None:
         checkpoint = {
             "version": version("tfmplayground"),
             "experiment_id": self.id,
@@ -343,14 +370,14 @@ class Experiment:
         torch.save(checkpoint, temporary_path)
         os.replace(temporary_path, path)
 
-    def save_checkpoints(self, model):
+    def save_checkpoints(self, model: TabularFoundationModel) -> None:
         self.save_checkpoint(self.last_checkpoint_path, model)
         if self.score is not None and math.isfinite(self.score):
             if self.best_score is None or self.score > self.best_score:
                 self.best_score = self.score
                 self.save_checkpoint(self.best_checkpoint_path, model)
 
-    def print0(self, s, console=False):
+    def print0(self, s: str, console: bool = False) -> None:
         with open(self.log_path, "a") as f:
             if console:
                 print(s)

@@ -4,12 +4,16 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from tfmplayground.configs.priors import PriorDumpConfig
 from tfmplayground.priors.base import Prior
 from tfmplayground.utils import get_default_device
 
 
 class DumpPrior(Prior):
-    def __init__(self, config, device=None):
+    def __init__(self, config: PriorDumpConfig, device: torch.device | None = None) -> None:
+        """
+        todo
+        """
         self.config = config
         with h5py.File(config.filename, "r") as f:
             self.num_tables = f["X"].shape[0]
@@ -24,13 +28,19 @@ class DumpPrior(Prior):
         self.device = device if device is not None else get_default_device()
         self.pointer = config.starting_index
 
-    def check_batch_size(self, batch_size):
+    def check_batch_size(self, batch_size: int) -> None:
+        """
+        todo
+        """
         if batch_size > self.num_tables:
             raise ValueError(f"batch size {batch_size} is larger than {self.num_tables} tables in dump")
         if self.block_size is not None and self.block_size % batch_size:
             raise ValueError(f"batch size {batch_size} does not divide dump block size {self.block_size}")
 
-    def batch(self, batch_size):
+    def batch(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        todo
+        """
         self.check_batch_size(batch_size)
         if self.pointer + batch_size > self.num_tables:
             self.pointer = 0

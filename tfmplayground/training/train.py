@@ -7,13 +7,19 @@ from torch import nn
 from tfmplayground.models import TabularFoundationModel
 from tfmplayground.priors import Prior, PriorDataLoader
 from tfmplayground.training.callbacks import Callback
-from tfmplayground.utils import Experiment, FullSupportBarDistribution, QuantileLoss, get_default_device
+from tfmplayground.utils import (
+    Experiment,
+    FullSupportBarDistribution,
+    QuantileLoss,
+    ScalarMSELoss,
+    get_default_device,
+)
 
 
 def train(
     model: TabularFoundationModel,
     prior: Prior,
-    criterion: nn.CrossEntropyLoss | FullSupportBarDistribution | QuantileLoss,
+    criterion: nn.CrossEntropyLoss | ScalarMSELoss | FullSupportBarDistribution | QuantileLoss,
     epochs: int,
     batch_size: int,
     steps_per_epoch: int,
@@ -23,6 +29,42 @@ def train(
     callbacks: list[Callback] | None = None,
     experiment: Experiment | None = None,
 ) -> TabularFoundationModel:
+    """
+    trains model on prior batches for given epochs
+
+    steps with non-finite values are skipped, and an epoch where every step is
+    skipped raises
+
+    Parameters
+    ----------
+    model : TabularFoundationModel
+        model to train
+    prior : Prior
+        prior that gives training tables
+    criterion : nn.CrossEntropyLoss or ScalarMSELoss or FullSupportBarDistribution or QuantileLoss
+        loss criterion, and what makes run classification or regression
+    epochs : int
+        number of epochs to train for
+    batch_size : int
+        number of tables per batch
+    steps_per_epoch : int
+        number of batches that make up one epoch
+    lr : float
+        learning rate for optimizer
+    grad_clip : float
+        largest gradient norm to keep before each step
+    device : torch.device, optional
+        device that holds model and batches
+    callbacks : list of Callback, optional
+        callbacks to run at end of each epoch, and to close at end of run
+    experiment : Experiment, optional
+        experiment that saves checkpoints after each epoch
+
+    Returns
+    -------
+    TabularFoundationModel
+        model after last epoch
+    """
     if callbacks is None:
         callbacks = []
     if not device:

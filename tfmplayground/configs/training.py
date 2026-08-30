@@ -34,7 +34,7 @@ class RegressionTrainingConfig(TrainingConfig):
     lr: float = 1e-4
     criterion: str | None = None
     bucket_borders_min_targets: int = 1_000_000
-    bucket_borders_outlier_threshold: float = 10.0
+    bucket_borders_inlier_quantile: float = 0.9999
 
 
 @dataclass

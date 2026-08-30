@@ -23,8 +23,9 @@ def to_numeric(x):
 
 def get_feature_preprocessor(X: np.ndarray | pd.DataFrame) -> Pipeline:
     """
-    fits a preprocessor that imputes NaNs, encodes categorical features, removes constant features
-    and puts every column on the scale the priors train on
+    fits a preprocessor that imputes NaNs, encodes categorical features and removes constant features
+
+    it also scales every column, because the priors give standard-scaled features
     """
     X = pd.DataFrame(X)
     num_mask = []

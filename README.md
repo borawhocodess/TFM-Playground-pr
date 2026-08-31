@@ -25,7 +25,7 @@ model = pretrainTFM(
 )
 ```
 
-full example in [scripts/pretrain_with_configs.py](scripts/pretrain_with_configs.py)
+full example in [scripts/pretraining_with_configs.py](scripts/pretraining_with_configs.py)
 
 ### model list
 

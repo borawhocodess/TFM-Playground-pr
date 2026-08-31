@@ -36,15 +36,18 @@ class NanoTabPFN(nn.Module):
         """
         Predicts the outputs for X_test given the labelled (X_train, y_train) context.
 
-        Args:
-            src: (tuple[torch.Tensor, torch.Tensor]) a tensor of shape
-                 (batch_size, num_rows, num_features) that holds X_train and X_test, and a tensor
-                 of shape (batch_size, num_train_datapoints, 1) that holds y_train
-            train_test_split_index: (int) the number of datapoints in X_train
+        Parameters
+        ----------
+        src : tuple of torch.Tensor
+            a tensor of shape (batch_size, num_rows, num_features) that holds X_train and X_test,
+            and a tensor of shape (batch_size, num_train_datapoints, 1) that holds y_train
+        train_test_split_index : int
+            the number of datapoints in X_train
 
-        Returns:
-            (torch.Tensor) a tensor of shape (batch_size, num_test_datapoints, num_classes),
-                           which represent the predicted logits
+        Returns
+        -------
+        torch.Tensor
+            a tensor of shape (batch_size, num_test_datapoints, num_classes), which represent the predicted logits
         """
         x_src, y_src = src
         # we expect the labels to look like (batches, num_train_datapoints, 1),

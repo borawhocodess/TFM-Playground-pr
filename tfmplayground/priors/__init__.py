@@ -1,4 +1,4 @@
-from .base import DictPrior, Prior, PriorDataLoader
+from .base import Prior, PriorDataLoader
 from .dump import DumpPrior, PriorDumpDataLoader
 from .nanotabicl import NanoTabICLPrior
 from .tabicl import TabICLPrior, TabICLPriorDataLoader
@@ -7,7 +7,6 @@ from .ticl import TICLPriorDataLoader, build_ticl_prior
 
 __all__ = [
     "Prior",
-    "DictPrior",
     "PriorDataLoader",
     "DumpPrior",
     "PriorDumpDataLoader",

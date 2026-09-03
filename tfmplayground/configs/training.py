@@ -1,17 +1,23 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 
 @dataclass
-class TrainingConfig:
+class TrainingConfig(ABC):
     """
     settings training runs share
     """
 
     seed: int = 2402
+    lr: float = 1e-4
     batch_size: int = 1
     steps: int = 100
     epochs: int = 10000
     grad_clip: float = 1.0
+
+    @property
+    @abstractmethod
+    def problem(self) -> str: ...
 
 
 @dataclass
@@ -21,7 +27,6 @@ class ClassificationTrainingConfig(TrainingConfig):
     """
 
     problem: str = "classification"
-    lr: float = 1e-4
 
 
 @dataclass
@@ -31,19 +36,22 @@ class RegressionTrainingConfig(TrainingConfig):
     """
 
     problem: str = "regression"
-    lr: float = 1e-4
     criterion: str | None = None
     bucket_borders_min_targets: int = 1_000_000
 
 
 @dataclass
-class ExperimentConfig:
+class ExperimentConfig(ABC):
     """
     settings experiment tracking shares
     """
 
     name: str = "test"
     experiments_dir: str = "workdir/experiments"
+
+    @property
+    @abstractmethod
+    def problem(self) -> str: ...
 
 
 @dataclass

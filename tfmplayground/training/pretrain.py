@@ -103,7 +103,6 @@ def default_criterion(
                 num_buckets=model.borders.numel() - 1,
                 batch_size=training.batch_size,
                 min_targets=training.bucket_borders_min_targets,
-                inlier_quantile=training.bucket_borders_inlier_quantile,
             ).to(device)
         model.config.head = head
         return make_regression_decoder(model).to(device)

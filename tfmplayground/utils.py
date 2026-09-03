@@ -76,7 +76,6 @@ def make_bucket_borders(
     num_buckets: int,
     batch_size: int,
     min_targets: int,
-    inlier_quantile: float,
 ) -> torch.Tensor:
     """
     finds bucket borders from targets that prior gives
@@ -100,12 +99,6 @@ def make_bucket_borders(
     ys = ys[torch.isfinite(ys)]
     if ys.numel() < num_buckets:
         raise ValueError(f"{ys.numel()} targets cannot make {num_buckets} buckets")
-
-    center = ys.median()
-    deviations = (ys - center).abs()
-    k = round(inlier_quantile * deviations.numel())
-    radius, _ = deviations.kthvalue(k)
-    ys = ys.clamp(center - radius, center + radius)
 
     return compute_bucket_borders(num_buckets, ys)
 

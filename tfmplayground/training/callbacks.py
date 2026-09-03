@@ -5,7 +5,7 @@ import torch
 from sklearn.metrics import r2_score, roc_auc_score
 
 from tfmplayground.configs.evaluation import EvaluationConfig
-from tfmplayground.evaluation.evaluation import get_openml_predictions, task_ids
+from tfmplayground.evaluation.evaluation import get_openml_predictions
 from tfmplayground.interface import TabularClassifier, TabularRegressor
 from tfmplayground.models.base import TabularFoundationModel
 from tfmplayground.utils import Experiment
@@ -155,7 +155,7 @@ class ExperimentEvaluationCallback(ExperimentCallback):
         """
         return get_openml_predictions(
             model=model,
-            tasks=task_ids(self.config.tasks, self.problem),
+            tasks=self.config.tasks,
             max_n_features=self.config.max_n_features,
             max_n_samples=self.config.max_n_samples,
         )

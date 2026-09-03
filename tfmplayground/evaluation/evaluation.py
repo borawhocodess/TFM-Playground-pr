@@ -7,14 +7,11 @@ from sklearn.preprocessing import LabelEncoder
 
 from tfmplayground.interface import TabularClassifier, TabularRegressor
 
-TOY_TASKS_REGRESSION = [
-    362443,  # diabetes
-]
-
-TOY_TASKS_CLASSIFICATION = [
+TOY_TASKS = [
     59,  # iris
     2382,  # wine
     9946,  # breast_cancer
+    362443,  # diabetes
 ]
 
 # we hardcode the list here because even if the tasks are cached
@@ -74,6 +71,19 @@ TABARENA_TASKS = [
 ]
 
 
+def get_task_ids(tasks):
+    if tasks == "toy":
+        task_ids = TOY_TASKS
+    elif tasks == "tabarena":
+        task_ids = TABARENA_TASKS
+    elif isinstance(tasks, list):
+        task_ids = tasks
+    else:
+        benchmark_suite = openml.study.get_suite(tasks)
+        task_ids = benchmark_suite.tasks
+    return task_ids
+
+
 @torch.no_grad()
 def get_openml_predictions(
     *,
@@ -113,11 +123,7 @@ def get_openml_predictions(
     if cache_directory is not None:
         set_root_cache_directory(cache_directory)
 
-    if isinstance(tasks, str):
-        benchmark_suite = openml.study.get_suite(tasks)
-        task_ids = benchmark_suite.tasks
-    else:
-        task_ids = tasks
+    task_ids = get_task_ids(tasks)
 
     dataset_predictions = {}
 
